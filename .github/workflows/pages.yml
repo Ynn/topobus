@@ -1,0 +1,46 @@
+name: Pages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: jetli/wasm-pack-action@v0.4.0
+      - name: Build WASM
+        working-directory: crates/topobus-wasm
+        run: wasm-pack build --target web --out-dir ../../frontend/wasm
+      - name: Prepare site
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          dest="dist/${version}"
+          mkdir -p "${dest}"
+          cp -a frontend/. "${dest}/"
+          cat > dist/index.html <<EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=${version}/">
+          <title>TopoBus</title>
+          <a href="${version}/">TopoBus ${version}</a>
+          </html>
+          EOF
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: dist
+          keep_files: true

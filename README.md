@@ -18,6 +18,22 @@ TopoBus is a KNX project visualizer for ETS `.knxproj` files. It renders topolog
 - Open `http://127.0.0.1:8080`
 - Drop a `.knxproj` file in the UI
 
+## Install local binary
+
+Build and install the CLI locally (binary name is `topobus`):
+
+```bash
+cargo install --path crates/topobus-server
+topobus
+```
+
+Or build a release binary without installing:
+
+```bash
+cargo build --release -p topobus-server
+./target/release/topobus
+```
+
 ## WASM build (static frontend)
 
 The frontend will use WASM parsing when available and fall back to the server otherwise.
@@ -32,3 +48,18 @@ Serve the `frontend/` directory as a static site (e.g., GitHub Pages).
 ## Exports
 
 - Export full-graph SVG and PNG from the toolbar.
+
+## GitHub Actions releases
+
+Tagging a new version publishes native binaries and a static WASM site:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+- Release artifacts (Linux/macOS/Windows) are attached to the GitHub Release.
+- GitHub Pages publishes the WASM build under `/<version>/` (e.g. `/v0.1.0/`).
+- The root page redirects to the latest version.
+
+To enable Pages, set the repo source to the `gh-pages` branch (root).
