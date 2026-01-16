@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TopoBus</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- JointJS dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.6.0/backbone-min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jointjs@3.7.7/dist/joint.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jointjs@3.7.7/dist/joint.min.css">
+    <!-- ELK layout -->
+    <script src="https://unpkg.com/elkjs@0.11.0/lib/elk.bundled.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <header>
+            <h1 class="brand">
+                <img src="topobus-logo.svg" alt="TopoBus logo" class="brand-logo">
+                <span>TopoBus</span>
+            </h1>
+            <div class="controls">
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="Search a node..." aria-label="Search">
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                </div>
+                <div class="filter-group">
+                    <label for="view-selector">Graph Type</label>
+                    <select id="view-selector">
+                        <option value="group">Group Address View</option>
+                        <option value="topology">Physical Topology</option>
+                        <option value="composite">Group Hierarchy</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="area-filter">Area</label>
+                    <select id="area-filter" aria-label="Filter by area"></select>
+                </div>
+                <div class="filter-group">
+                    <label for="line-filter">Line</label>
+                    <select id="line-filter" aria-label="Filter by line"></select>
+                </div>
+                <div class="filter-group">
+                    <label for="main-group-filter">Main Group</label>
+                    <select id="main-group-filter" aria-label="Filter by main group"></select>
+                </div>
+                <div class="zoom-group">
+                    <button id="zoom-out-btn" aria-label="Zoom out">-</button>
+                    <button id="zoom-in-btn" aria-label="Zoom in">+</button>
+                </div>
+                <button id="fit-btn">Fit View</button>
+                <button id="relayout-btn">Re-layout</button>
+                <button id="export-btn">Export SVG</button>
+                <button id="export-png-btn">Export PNG</button>
+            </div>
+        </header>
+
+        <div id="main-content">
+            <!-- Upload zone -->
+            <div id="upload-zone" class="upload-zone">
+                <div class="upload-content">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <h2>Drop your .knxproj file</h2>
+                    <p>or <label for="file-input" class="file-label">browse your computer</label></p>
+                    <input type="file" id="file-input" accept=".knxproj" style="display: none;">
+                    <div class="password-row hidden" id="password-row">
+                        <label for="password-input">Project password (optional)</label>
+                        <div class="password-actions">
+                            <input type="password" id="password-input" placeholder="Leave blank if none">
+                            <button type="button" id="password-submit">Retry</button>
+                        </div>
+                        <div class="password-hint" id="password-hint"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading indicator -->
+            <div id="loading" class="hidden">
+                <div class="spinner"></div>
+                <p>Loading project...</p>
+            </div>
+
+            <!-- Visualization area -->
+            <div id="visualization" class="hidden">
+                <div id="paper-container">
+                    <div id="paper-scroll">
+                        <div id="paper"></div>
+                    </div>
+                    <div id="minimap-wrap">
+                        <div class="minimap-label">Minimap</div>
+                        <canvas id="minimap"></canvas>
+                    </div>
+                </div>
+                <div id="info-panel">
+                    <div id="resize-handle"></div>
+                    <h3 id="project-name">TopoBus Project</h3>
+                    <div id="stats"></div>
+                    <div id="details">
+                        <h4>Selection</h4>
+                        <div id="details-content" class="details-content">
+                            Click a node to see details.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+
+</html>
