@@ -4,7 +4,7 @@
   <img src="frontend/topobus-logo.svg" alt="TopoBus logo" width="140">
 </p>
 
-TopoBus is a small KNX project viewer for ETS `.knxproj` files. It helps you quickly see the topology and group addresses without trying to replace ETS.
+TopoBus is a small KNX project viewer for ETS `.knxproj` files. It helps you quickly see the topology and group addresses of a KNX installation in a graphical way.
 
 <p align="center">
   <img src="images/topobus_screenshot.png" alt="TopoBus logo">
