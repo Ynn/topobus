@@ -1,10 +1,16 @@
 # TopoBus
 
-<p align="left">
+<p align="center">
   <img src="frontend/topobus-logo.svg" alt="TopoBus logo" width="140">
 </p>
 
+
+
 TopoBus is a KNX project visualizer for ETS `.knxproj` files. It renders topology and group address views to help understand KNX project structure quickly.
+
+<p align="center">
+  <img src="images/topobus_screenshot.png" alt="TopoBus logo">
+</p>
 
 ## Workspace layout
 
