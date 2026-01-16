@@ -68,4 +68,4 @@ git push origin v0.1.0
 - GitHub Pages publishes the WASM build under `/<version>/` (e.g. `/v0.1.0/`).
 - The root page redirects to the latest version.
 
-To enable Pages, set the repo source to the `gh-pages` branch (root).
+To enable Pages, set the repo source to GitHub Actions (Settings → Pages → Source).

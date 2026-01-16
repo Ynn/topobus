@@ -1,6 +1,6 @@
 import { state } from './state.js';
 
-const DPT_CSV_PATH = '/dpt.csv';
+const DPT_CSV_PATH = new URL('../dpt.csv', import.meta.url);
 let loadPromise = null;
 
 export function loadDptCatalog() {
