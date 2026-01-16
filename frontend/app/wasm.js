@@ -10,8 +10,12 @@ export async function initWasm() {
         try {
             const module = await import('../wasm/topobus_wasm.js');
             if (typeof module.default === 'function') {
-                const wasmUrl = new URL('../wasm/topobus_wasm_bg.wasm', import.meta.url);
+            const wasmUrl = new URL('../wasm/topobus_wasm_bg.wasm', import.meta.url);
+            try {
+                await module.default({ module_or_path: wasmUrl });
+            } catch (error) {
                 await module.default(wasmUrl);
+            }
             }
             wasmModule = module;
             wasmReady = true;
