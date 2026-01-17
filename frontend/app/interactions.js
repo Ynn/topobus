@@ -17,6 +17,12 @@ export function bindInteractions() {
         selectCell(elementView.model);
     });
 
+    paper.on('element:pointerdown', (elementView, event) => {
+        if (shouldPanFromElement(elementView, event)) {
+            startPan(event);
+        }
+    });
+
     const dom = getDom();
     if (state.wheelHandler && dom && dom.paper) {
         dom.paper.removeEventListener('wheel', state.wheelHandler);
@@ -192,6 +198,34 @@ function handlePanMove(event) {
 function stopPan() {
     state.panState = null;
     document.body.style.cursor = 'default';
+}
+
+function shouldPanFromElement(elementView, event) {
+    if (!elementView || !event) return false;
+    const kind = elementView.model ? elementView.model.get('kind') : null;
+    const isHeader = isHeaderTarget(event.target);
+
+    if (state.currentView === 'topology' && (kind === 'area' || kind === 'line')) {
+        return !isHeader;
+    }
+    if (state.currentView === 'composite' && kind && kind.startsWith('composite-') && kind !== 'composite-object') {
+        return !isHeader;
+    }
+    if (state.currentView === 'building' && kind === 'building-space') {
+        return !isHeader;
+    }
+    return false;
+}
+
+function isHeaderTarget(target) {
+    if (!target) return false;
+    const handle = target.closest ? target.closest('[joint-selector]') : target;
+    if (!handle) return false;
+    const selector = handle.getAttribute('joint-selector');
+    return selector === 'header' ||
+        selector === 'label' ||
+        selector === 'name' ||
+        selector === 'address';
 }
 
 export function zoomAt(point, nextScale) {

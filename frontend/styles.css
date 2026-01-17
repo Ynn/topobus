@@ -48,7 +48,7 @@ body {
 header {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 1rem 2rem;
+    padding: 0.75rem 1.5rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -76,16 +76,23 @@ h1.brand {
 
 .controls {
     display: flex;
-    gap: 0.8rem;
+    gap: 0.6rem;
     align-items: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+}
+
+.controls > .filter-group,
+.controls > .search-box,
+.controls > .zoom-group,
+.controls > button {
+    align-self: flex-end;
 }
 
 .filter-group {
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
-    min-width: 180px;
+    min-width: 140px;
 }
 
 .filter-group label {
@@ -97,18 +104,22 @@ h1.brand {
 }
 
 .filter-group select {
-    width: 220px;
-    max-width: 220px;
+    width: 180px;
+    max-width: 180px;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.export-group select {
+    width: 140px;
+    max-width: 140px;
 }
 
 .search-box {
     position: relative;
     display: flex;
     align-items: center;
-    margin-right: auto;
-    /* Push search to the left or use flex logic */
+    align-self: flex-end;
 }
 
 .search-box input {
@@ -118,7 +129,7 @@ h1.brand {
     background: #fffef9;
     color: var(--ink);
     font-size: 0.9rem;
-    width: 240px;
+    width: 200px;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.02);
     transition: all 0.2s ease;
 }
@@ -136,6 +147,50 @@ h1.brand {
     pointer-events: none;
 }
 
+.search-suggestions {
+    position: absolute;
+    top: 110%;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: #fffef9;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 0.35rem;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.search-suggestion {
+    width: 100%;
+    text-align: left;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    padding: 0.45rem 0.55rem;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.search-suggestion:hover {
+    background: rgba(15, 118, 110, 0.08);
+}
+
+.suggestion-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.suggestion-meta {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+}
+
 .zoom-group {
     display: inline-flex;
     border: 1px solid var(--border);
@@ -144,6 +199,7 @@ h1.brand {
     overflow: hidden;
     background: #fff;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.02);
+    align-self: flex-end;
 }
 
 select,
@@ -382,6 +438,7 @@ select:disabled {
     position: relative;
     display: flex;
     flex-direction: column;
+    flex: 0 0 auto;
 }
 
 #resize-handle {
@@ -389,7 +446,7 @@ select:disabled {
     left: 0;
     top: 0;
     bottom: 0;
-    width: 6px;
+    width: 8px;
     cursor: ew-resize;
     background: transparent;
     z-index: 10;
@@ -612,6 +669,7 @@ select:disabled {
     padding: 0.35rem 0.45rem;
     text-align: left;
     vertical-align: top;
+    word-break: break-word;
 }
 
 .panel-table th {
@@ -693,8 +751,13 @@ select:disabled {
     }
 
     .filter-group select {
-        width: 200px;
-        max-width: 200px;
+        width: 180px;
+        max-width: 180px;
+    }
+
+    .export-group select {
+        width: 140px;
+        max-width: 140px;
     }
 }
 
@@ -713,7 +776,7 @@ select:disabled {
     }
 
     .filter-group {
-        min-width: 160px;
+        min-width: 140px;
     }
 
     .filter-group select {

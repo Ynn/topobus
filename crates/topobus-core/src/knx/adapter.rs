@@ -887,6 +887,7 @@ fn extract_devices<R: Read + Seek>(
         }
 
         let mut configuration = HashMap::new();
+        let mut configuration_entries = Vec::new();
 
         // Extract ParameterInstanceRef
         for param_ref in device_node
@@ -909,7 +910,13 @@ fn extract_devices<R: Read + Seek>(
                 .unwrap_or_else(|| short_ref.to_string());
 
             // Simple value formatting (could be improved for specific types like IP)
-            configuration.insert(name, value.to_string());
+            configuration.insert(name.clone(), value.to_string());
+            configuration_entries.push(DeviceConfigEntry {
+                name,
+                value: value.to_string(),
+                ref_id: Some(short_ref.to_string()),
+                source: Some("Parameter".to_string()),
+            });
         }
 
         // Extract Property (often contains IP info for interfaces)
@@ -925,7 +932,14 @@ fn extract_devices<R: Read + Seek>(
             // Common Property IDs for IP (PID_IP_ADDRESS = 51, etc.) can be checked but generic dump is safer first
             // Just use Id as key for now if we can't map it, or Name if available (rare on instance)
             if !value.is_empty() {
-                configuration.insert(format!("Property {}", id), value.to_string());
+                let name = format!("Property {}", id);
+                configuration.insert(name.clone(), value.to_string());
+                configuration_entries.push(DeviceConfigEntry {
+                    name,
+                    value: value.to_string(),
+                    ref_id: if id.is_empty() { None } else { Some(id.to_string()) },
+                    source: Some("Property".to_string()),
+                });
             }
         }
 
@@ -958,6 +972,7 @@ fn extract_devices<R: Read + Seek>(
             last_download,
             group_links,
             configuration,
+            configuration_entries,
         });
     }
 

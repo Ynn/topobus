@@ -100,6 +100,9 @@ pub struct DeviceInfo {
     pub group_links: Vec<GroupLink>,
     /// Device configuration parameters
     pub configuration: std::collections::HashMap<String, String>,
+    /// Device configuration entries with optional reference metadata
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub configuration_entries: Vec<DeviceConfigEntry>,
 }
 
 /// Link between a device communication object and a group address
@@ -147,6 +150,21 @@ pub struct ObjectFlags {
     pub update: bool,
     /// Read On Init flag (I) - read value on bus reset
     pub read_on_init: bool,
+}
+
+/// Configuration parameter entry for a device
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceConfigEntry {
+    /// Display name for the parameter
+    pub name: String,
+    /// Raw value
+    pub value: String,
+    /// Optional reference id or code
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_id: Option<String>,
+    /// Optional source label (Parameter/Property/etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// Information about a KNX group address

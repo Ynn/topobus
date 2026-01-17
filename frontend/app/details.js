@@ -199,7 +199,10 @@ export function updateDetailsPanel(cell) {
         container.appendChild(infoSection);
 
         const configuration = deviceInfo && deviceInfo.configuration ? deviceInfo.configuration : config;
-        const configSection = buildConfigSection(configuration, createSection);
+        const configEntries = deviceInfo && Array.isArray(deviceInfo.configuration_entries)
+            ? deviceInfo.configuration_entries
+            : null;
+        const configSection = buildConfigSection(configuration, configEntries, createSection);
 
         const links = deviceInfo && Array.isArray(deviceInfo.group_links)
             ? deviceInfo.group_links
@@ -372,8 +375,19 @@ function kindLabel(kind) {
 
 registerSelectionListener(updateDetailsPanel);
 
-function buildConfigSection(configuration, createSection) {
-    if (!configuration || Object.keys(configuration).length === 0) return null;
+function buildConfigSection(configuration, entries, createSection) {
+    const list = Array.isArray(entries) && entries.length
+        ? entries
+        : (configuration
+            ? Object.entries(configuration).map(([key, value]) => ({
+                name: key,
+                value,
+                ref_id: null,
+                source: null
+            }))
+            : []);
+    if (!list.length) return null;
+
     const section = createSection('Configuration');
     const table = document.createElement('table');
     table.className = 'panel-table';
@@ -383,25 +397,43 @@ function buildConfigSection(configuration, createSection) {
     keyHead.textContent = 'Parameter';
     const valHead = document.createElement('th');
     valHead.textContent = 'Value';
+    const refHead = document.createElement('th');
+    refHead.textContent = 'Ref';
     header.appendChild(keyHead);
     header.appendChild(valHead);
+    header.appendChild(refHead);
     table.appendChild(header);
 
-    Object.entries(configuration)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .forEach(([key, value]) => {
+    list
+        .slice()
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+        .forEach((entry) => {
             const row = document.createElement('tr');
             const keyCell = document.createElement('td');
-            keyCell.textContent = key;
+            keyCell.textContent = entry.name || '';
             const valCell = document.createElement('td');
-            valCell.textContent = value;
+            valCell.textContent = entry.value || '';
+            const refCell = document.createElement('td');
+            refCell.textContent = formatConfigRef(entry);
             row.appendChild(keyCell);
             row.appendChild(valCell);
+            row.appendChild(refCell);
             table.appendChild(row);
         });
 
     section.appendChild(table);
     return section;
+}
+
+function formatConfigRef(entry) {
+    const parts = [];
+    if (entry.source) {
+        parts.push(entry.source);
+    }
+    if (entry.ref_id) {
+        parts.push(entry.ref_id);
+    }
+    return parts.join(' ');
 }
 
 function resolveDeviceInfo(cell, props) {

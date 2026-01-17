@@ -132,23 +132,34 @@ function buildLineOptions(project) {
 }
 
 function buildMainGroupOptions(project) {
-    const options = [{ value: ALL_VALUE, label: 'All Main Groups' }];
+    const options = [{ value: ALL_VALUE, label: 'All Groups' }];
     const nodes = project.group_address_graph && project.group_address_graph.nodes
         ? project.group_address_graph.nodes
         : [];
-    const map = new Map();
+    const mainMap = new Map();
+    const middleMap = new Map();
     nodes.forEach((node) => {
         if (node.kind !== 'groupaddress') return;
         const props = node.properties || {};
         const address = props.address || '';
-        const main = mainGroupFromAddress(address);
-        if (!main) return;
-        if (map.has(main)) return;
-        const name = props.main_name ? ` : ${props.main_name}` : '';
-        map.set(main, { value: main, label: `Main ${main}${name}` });
+        const parts = parseGroupAddressParts(address);
+        if (!parts.main) return;
+
+        if (!mainMap.has(parts.main)) {
+            const name = props.main_name ? ` : ${props.main_name}` : '';
+            mainMap.set(parts.main, { value: `main:${parts.main}`, label: `Main ${parts.main}${name}` });
+        }
+
+        if (parts.middle && !middleMap.has(parts.middleKey)) {
+            const middleName = props.middle_name ? ` : ${props.middle_name}` : '';
+            const label = `${parts.middleKey}${middleName}`;
+            middleMap.set(parts.middleKey, { value: `mid:${parts.middleKey}`, label });
+        }
     });
-    const mapped = Array.from(map.values()).sort(sortNumericOptions);
-    mapped.forEach((opt) => options.push(opt));
+    const mappedMain = Array.from(mainMap.values()).sort(sortNumericGroupOptions);
+    const mappedMiddle = Array.from(middleMap.values()).sort(sortNumericGroupOptions);
+    mappedMain.forEach((opt) => options.push(opt));
+    mappedMiddle.forEach((opt) => options.push(opt));
     return options;
 }
 
@@ -172,7 +183,7 @@ function buildLineListForArea(area) {
 function filterProject(project, filters) {
     const areaFilter = filters.area || ALL_VALUE;
     const lineFilter = parseLineFilter(filters.line);
-    const mainFilter = filters.mainGroup || ALL_VALUE;
+    const mainFilter = parseGroupFilter(filters.mainGroup);
 
     const filteredTopology = filterTopologyGraph(project.topology_graph, areaFilter, lineFilter);
     const filteredGroup = filterGroupGraph(project.group_address_graph, areaFilter, lineFilter, mainFilter);
@@ -291,7 +302,7 @@ function filterTopologyGraph(graph, areaFilter, lineFilter) {
 
 function filterGroupGraph(graph, areaFilter, lineFilter, mainFilter) {
     if (!graph || !graph.nodes) return graph;
-    if (areaFilter === ALL_VALUE && !lineFilter && mainFilter === ALL_VALUE) return graph;
+    if (areaFilter === ALL_VALUE && !lineFilter && mainFilter.type === 'all') return graph;
 
     const deviceNodes = graph.nodes.filter((node) => node.kind === 'device');
     const objectNodes = graph.nodes.filter((node) => node.kind === 'groupobject');
@@ -312,7 +323,7 @@ function filterGroupGraph(graph, areaFilter, lineFilter, mainFilter) {
         const parent = node.parent_id;
         if (!parent || !deviceAllowed.has(parent)) return;
         const address = node.properties && node.properties.group_address ? node.properties.group_address : '';
-        if (mainFilter !== ALL_VALUE && mainGroupFromAddress(address) !== mainFilter) return;
+        if (!matchesGroupFilter(address, mainFilter)) return;
         allowedObjects.add(node.id);
         allowedDevices.add(parent);
         if (address) {
@@ -325,7 +336,7 @@ function filterGroupGraph(graph, areaFilter, lineFilter, mainFilter) {
         const address = node.properties && node.properties.address ? node.properties.address : '';
         if (!address) return;
         if (!allowedGroupAddresses.has(address)) return;
-        if (mainFilter !== ALL_VALUE && mainGroupFromAddress(address) !== mainFilter) return;
+        if (!matchesGroupFilter(address, mainFilter)) return;
         allowedGaIds.add(node.id);
     });
 
@@ -356,11 +367,40 @@ function matchesAreaLine(node, areaFilter, lineFilter) {
     return area === areaFilter;
 }
 
-function mainGroupFromAddress(address) {
+function parseGroupAddressParts(address) {
     const cleaned = String(address || '').trim();
-    if (!cleaned) return '';
-    const parts = cleaned.split(/[/.]/);
-    return parts[0] ? String(parts[0]) : '';
+    if (!cleaned) return { main: '', middle: '', middleKey: '' };
+    const parts = cleaned.split(/[/.]/).filter(Boolean);
+    const main = parts[0] ? String(parts[0]) : '';
+    const middle = parts[1] ? String(parts[1]) : '';
+    const middleKey = main && middle ? `${main}/${middle}` : '';
+    return { main, middle, middleKey };
+}
+
+function parseGroupFilter(value) {
+    const cleaned = String(value || '').trim();
+    if (!cleaned || cleaned === ALL_VALUE) return { type: 'all' };
+    if (cleaned.startsWith('main:')) {
+        return { type: 'main', main: cleaned.slice(5) };
+    }
+    if (cleaned.startsWith('mid:')) {
+        const rest = cleaned.slice(4);
+        const parts = rest.split('/');
+        return { type: 'middle', main: parts[0] || '', middle: parts[1] || '' };
+    }
+    return { type: 'main', main: cleaned };
+}
+
+function matchesGroupFilter(address, filter) {
+    if (!filter || filter.type === 'all') return true;
+    const parts = parseGroupAddressParts(address);
+    if (filter.type === 'main') {
+        return parts.main === filter.main;
+    }
+    if (filter.type === 'middle') {
+        return parts.main === filter.main && parts.middle === filter.middle;
+    }
+    return true;
 }
 
 function sortNumericOptions(a, b) {
@@ -384,6 +424,26 @@ function sortNumericLineOptions(a, b) {
     const bLineNum = parseInt(bLine, 10);
     if (!Number.isNaN(aLineNum) && !Number.isNaN(bLineNum) && aLineNum !== bLineNum) {
         return aLineNum - bLineNum;
+    }
+    return a.label.localeCompare(b.label);
+}
+
+function sortNumericGroupOptions(a, b) {
+    const aValue = String(a.value || '');
+    const bValue = String(b.value || '');
+    const aKey = aValue.includes(':') ? aValue.split(':')[1] : aValue;
+    const bKey = bValue.includes(':') ? bValue.split(':')[1] : bValue;
+    const [aMain, aMiddle] = aKey.split('/');
+    const [bMain, bMiddle] = bKey.split('/');
+    const aMainNum = parseInt(aMain, 10);
+    const bMainNum = parseInt(bMain, 10);
+    if (!Number.isNaN(aMainNum) && !Number.isNaN(bMainNum) && aMainNum !== bMainNum) {
+        return aMainNum - bMainNum;
+    }
+    const aMidNum = parseInt(aMiddle, 10);
+    const bMidNum = parseInt(bMiddle, 10);
+    if (!Number.isNaN(aMidNum) && !Number.isNaN(bMidNum) && aMidNum !== bMidNum) {
+        return aMidNum - bMidNum;
     }
     return a.label.localeCompare(b.label);
 }

@@ -74,10 +74,16 @@ export function renderGraph(projectData, viewType) {
             }
             if (viewType === 'composite') {
                 const movable = kind && kind.startsWith('composite-') && kind !== 'composite-object';
-                return { elementMove: movable, linkMove: false, labelMove: false };
+                if (movable) {
+                    return { elementMove: isHeaderDragTarget(cellView), linkMove: false, labelMove: false };
+                }
+                return { elementMove: false, linkMove: false, labelMove: false };
             }
             if (viewType === 'building') {
-                const movable = kind === 'building-space' || kind === 'device';
+                if (kind === 'building-space') {
+                    return { elementMove: isHeaderDragTarget(cellView), linkMove: false, labelMove: false };
+                }
+                const movable = kind === 'device';
                 return { elementMove: movable, linkMove: false, labelMove: false };
             }
             return { elementMove: true, linkMove: false, labelMove: false };
