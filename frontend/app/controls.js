@@ -9,6 +9,7 @@ import { scheduleMinimap } from './minimap.js';
 export function setupViewSelector() {
     const dom = getDom();
     if (!dom || !dom.viewSelector) return;
+    dom.viewSelector.value = state.currentView;
     dom.viewSelector.addEventListener('change', (e) => {
         state.currentView = e.target.value;
         if (state.currentProject) {

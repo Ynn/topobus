@@ -477,6 +477,7 @@ export function updateDeviceText(deviceEl, width, settings) {
 }
 
 export function updateGroupObjectText(objectEl, width, settings) {
+    const theme = readTheme();
     const name = objectEl.get('fullName') || '';
     const address = objectEl.get('groupAddress') || '';
     const leftPad = Math.max(8, Math.round(settings.padding * 0.7));
@@ -487,7 +488,13 @@ export function updateGroupObjectText(objectEl, width, settings) {
     objectEl.attr('name/refX', leftPad);
     objectEl.attr('address/refX2', -rightPad);
 
-    objectEl.attr('name/text', name);
+    const nameFont = `600 ${settings.rowFont.name}px ${theme.fontSans}`;
+    const addressFont = `700 ${settings.rowFont.address}px ${theme.fontMono}`;
+    const addressWidth = measureTextWidth(address, addressFont);
+    const maxNameWidth = Math.max(20, width - leftPad - rightPad - settings.innerGap - addressWidth);
+    const fittedName = fitTextToWidth(name, maxNameWidth, nameFont);
+
+    objectEl.attr('name/text', fittedName);
     objectEl.attr('address/text', address);
 }
 
@@ -582,8 +589,12 @@ export function resizeParentNode(cell) {
 
     const newX = minX - padding;
     const newY = minY - headerHeight;
-    const newWidth = (maxX - minX) + padding * 2;
+    let newWidth = (maxX - minX) + padding * 2;
     const newHeight = (maxY - minY) + headerHeight + padding;
+    const minWidth = minContainerLabelWidth(parent, padding);
+    if (minWidth && newWidth < minWidth) {
+        newWidth = minWidth;
+    }
 
     const currentBBox = parent.getBBox();
 
@@ -703,8 +714,12 @@ function resizeContainerToChildren(parent) {
     const { padding, headerHeight } = containerMetrics(parent);
     const newX = minX - padding;
     const newY = minY - headerHeight;
-    const newWidth = (maxX - minX) + padding * 2;
+    let newWidth = (maxX - minX) + padding * 2;
     const newHeight = (maxY - minY) + headerHeight + padding;
+    const minWidth = minContainerLabelWidth(parent, padding);
+    if (minWidth && newWidth < minWidth) {
+        newWidth = minWidth;
+    }
 
     const currentBBox = parent.getBBox();
     if (Math.abs(currentBBox.x - newX) < 0.5 &&
@@ -765,6 +780,29 @@ function containerMetrics(parent) {
     if (Number.isFinite(customPadding)) padding = customPadding;
     if (Number.isFinite(customHeader)) headerHeight = customHeader;
     return { padding, headerHeight };
+}
+
+function minContainerLabelWidth(parent, padding) {
+    if (!parent || !parent.attr) return 0;
+    const kind = parent.get('kind');
+    if (!kind || (!kind.startsWith('composite-') && kind !== 'building-space')) {
+        return 0;
+    }
+    const labelText = parent.attr('label/text') ||
+        parent.get('fullName') ||
+        parent.get('fullLabel') ||
+        '';
+    if (!labelText) return 0;
+    const fontSize = Number(parent.attr('label/fontSize')) || 12;
+    const fontWeight = parent.attr('label/fontWeight') || '700';
+    const fontFamily = parent.attr('label/fontFamily') || readTheme().fontSans;
+    const font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+    const textWidth = measureTextWidth(labelText, font);
+    const refX = Number(parent.attr('label/refX'));
+    const leftPad = Number.isFinite(refX) ? refX : Math.max(10, Math.round(padding * 0.8));
+    const rightPad = leftPad;
+    const cushion = Math.max(6, Math.round(fontSize * 0.6));
+    return textWidth + leftPad + rightPad + cushion;
 }
 
 function translateSubtree(cell, dx, dy, opts) {

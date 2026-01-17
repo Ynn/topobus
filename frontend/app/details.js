@@ -22,7 +22,6 @@ export function updateDetailsPanel(cell) {
     const kind = nodeData ? nodeData.kind : cell.get('kind');
     const fullAddress = cell.get('fullAddress') || props.address || '';
     const fullName = cell.get('fullName') || props.name || (nodeData ? nodeData.label : '') || '';
-    const config = nodeData ? nodeData.configuration : {};
 
     const header = document.createElement('div');
     header.className = 'panel-header';
@@ -198,12 +197,6 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'MAC Address', deviceProps.mac_address);
         container.appendChild(infoSection);
 
-        const configuration = deviceInfo && deviceInfo.configuration ? deviceInfo.configuration : config;
-        const configEntries = deviceInfo && Array.isArray(deviceInfo.configuration_entries)
-            ? deviceInfo.configuration_entries
-            : null;
-        const configSection = buildConfigSection(configuration, configEntries, createSection);
-
         const links = deviceInfo && Array.isArray(deviceInfo.group_links)
             ? deviceInfo.group_links
             : (nodeData && Array.isArray(nodeData.group_links) ? nodeData.group_links : []);
@@ -279,9 +272,6 @@ export function updateDetailsPanel(cell) {
             container.appendChild(statsSection);
         }
 
-        if (configSection) {
-            container.appendChild(configSection);
-        }
     } else if (kind === 'groupobject') {
         const infoSection = createSection('Object Details');
         addRow(infoSection, 'Number', props.number);
@@ -374,67 +364,6 @@ function kindLabel(kind) {
 }
 
 registerSelectionListener(updateDetailsPanel);
-
-function buildConfigSection(configuration, entries, createSection) {
-    const list = Array.isArray(entries) && entries.length
-        ? entries
-        : (configuration
-            ? Object.entries(configuration).map(([key, value]) => ({
-                name: key,
-                value,
-                ref_id: null,
-                source: null
-            }))
-            : []);
-    if (!list.length) return null;
-
-    const section = createSection('Configuration');
-    const table = document.createElement('table');
-    table.className = 'panel-table';
-
-    const header = document.createElement('tr');
-    const keyHead = document.createElement('th');
-    keyHead.textContent = 'Parameter';
-    const valHead = document.createElement('th');
-    valHead.textContent = 'Value';
-    const refHead = document.createElement('th');
-    refHead.textContent = 'Ref';
-    header.appendChild(keyHead);
-    header.appendChild(valHead);
-    header.appendChild(refHead);
-    table.appendChild(header);
-
-    list
-        .slice()
-        .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-        .forEach((entry) => {
-            const row = document.createElement('tr');
-            const keyCell = document.createElement('td');
-            keyCell.textContent = entry.name || '';
-            const valCell = document.createElement('td');
-            valCell.textContent = entry.value || '';
-            const refCell = document.createElement('td');
-            refCell.textContent = formatConfigRef(entry);
-            row.appendChild(keyCell);
-            row.appendChild(valCell);
-            row.appendChild(refCell);
-            table.appendChild(row);
-        });
-
-    section.appendChild(table);
-    return section;
-}
-
-function formatConfigRef(entry) {
-    const parts = [];
-    if (entry.source) {
-        parts.push(entry.source);
-    }
-    if (entry.ref_id) {
-        parts.push(entry.ref_id);
-    }
-    return parts.join(' ');
-}
 
 function resolveDeviceInfo(cell, props) {
     const address = cell.get('fullAddress') || props.address || '';

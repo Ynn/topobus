@@ -180,6 +180,11 @@ function calculateSizes(node, metrics, depth) {
         if (!node.children || node.children.length === 0) {
             node.width = Math.max(200, Math.round(220 * metrics.settings.scale));
             node.height = headerHeight + padding * 2 + 10;
+            if (node.label) {
+                const font = `700 ${fontSize}px ${theme.fontSans}`;
+                const labelWidth = measureTextWidth(node.label, font) + padding * 2;
+                node.width = Math.max(node.width, labelWidth);
+            }
             return;
         }
 

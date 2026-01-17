@@ -35,7 +35,12 @@ export function renderGraph(projectData, viewType) {
 
     const dom = getDom();
     if (state.paper) {
-        state.paper.off();
+        if (state.paper.undelegateEvents) {
+            state.paper.undelegateEvents();
+        }
+        if (state.paper.stopListening) {
+            state.paper.stopListening();
+        }
         state.paper = null;
     }
     if (dom && dom.paper) {

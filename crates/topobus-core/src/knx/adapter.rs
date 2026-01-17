@@ -1202,6 +1202,7 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
     let doc =
         Document::parse(strip_bom(&xml)).with_context(|| format!("Failed to parse {}", path))?;
     let prefix = format!("{}_", app_id);
+    let translations = build_translations(&doc, &prefix);
 
     let mut arguments = HashMap::new();
     for arg in doc
@@ -1212,7 +1213,7 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
             Some(id) => id,
             None => continue,
         };
-        let name = match arg.attribute("Name") {
+        let name = match attr_value_localized(&arg, "Name", &translations, &prefix) {
             Some(name) if !name.trim().is_empty() => name,
             _ => continue,
         };
@@ -1234,10 +1235,10 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
                 flags: Flags::from_node(&obj),
                 datapoint_type: attr_value(&obj, "DatapointType"),
                 number: obj.attribute("Number").and_then(|v| v.parse().ok()),
-                description: attr_value(&obj, "Description"),
-                name: attr_value(&obj, "Name"),
-                text: attr_value(&obj, "Text"),
-                function_text: attr_value(&obj, "FunctionText"),
+                description: attr_value_localized(&obj, "Description", &translations, &prefix),
+                name: attr_value_localized(&obj, "Name", &translations, &prefix),
+                text: attr_value_localized(&obj, "Text", &translations, &prefix),
+                function_text: attr_value_localized(&obj, "FunctionText", &translations, &prefix),
             },
         );
     }
@@ -1259,9 +1260,9 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
             .and_then(|n| attr_value(&n, "Text").or_else(|| attr_value(&n, "Name")));
 
         let def = ComObjectRefDef {
-            function_text: attr_value(&obj, "FunctionText"),
-            name: attr_value(&obj, "Name"),
-            text: attr_value(&obj, "Text"),
+            function_text: attr_value_localized(&obj, "FunctionText", &translations, &prefix),
+            name: attr_value_localized(&obj, "Name", &translations, &prefix),
+            text: attr_value_localized(&obj, "Text", &translations, &prefix),
             datapoint_type: attr_value(&obj, "DatapointType"),
             ref_id: obj
                 .attribute("RefId")
@@ -1269,7 +1270,7 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
             flags: Flags::from_node(&obj),
             channel: channel_name,
             number: obj.attribute("Number").and_then(|v| v.parse().ok()),
-            description: attr_value(&obj, "Description"),
+            description: attr_value_localized(&obj, "Description", &translations, &prefix),
         };
         com_object_refs.insert(strip_prefix(id, &prefix), def);
     }
@@ -1286,8 +1287,8 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
         parameters.insert(
             strip_prefix(id, &prefix),
             ParameterDef {
-                name: attr_value(&param, "Name"),
-                text: attr_value(&param, "Text"),
+                name: attr_value_localized(&param, "Name", &translations, &prefix),
+                text: attr_value_localized(&param, "Text", &translations, &prefix),
             },
         );
     }
@@ -1295,7 +1296,7 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
     let app_node = doc
         .descendants()
         .find(|node| node.tag_name().name() == "ApplicationProgram");
-    let app_name = app_node.and_then(|node| attr_value(&node, "Name"));
+    let app_name = app_node.and_then(|node| attr_value_localized(&node, "Name", &translations, &prefix));
     let app_version = app_node.and_then(|node| attr_value(&node, "ApplicationVersion"));
     let app_number = app_node.and_then(|node| attr_value(&node, "ApplicationNumber"));
     let app_type = app_node.and_then(|node| attr_value(&node, "ProgramType"));
@@ -1323,6 +1324,101 @@ fn attr_value(node: &roxmltree::Node, name: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
+}
+
+fn attr_value_localized(
+    node: &roxmltree::Node,
+    name: &str,
+    translations: &HashMap<String, HashMap<String, String>>,
+    prefix: &str,
+) -> Option<String> {
+    let id = node.attribute("Id").unwrap_or("");
+    if !id.is_empty() {
+        let key = strip_prefix(id, prefix);
+        if let Some(map) = translations.get(&key) {
+            if let Some(text) = map.get(name) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+    attr_value(node, name)
+}
+
+fn build_translations(
+    doc: &Document,
+    prefix: &str,
+) -> HashMap<String, HashMap<String, String>> {
+    let mut map = HashMap::new();
+    let language = select_language(doc);
+    if language.is_none() {
+        return map;
+    }
+    let language = language.unwrap();
+
+    let language_node = doc
+        .descendants()
+        .find(|node| node.tag_name().name() == "Language" && node.attribute("Identifier") == Some(language.as_str()));
+    let language_node = match language_node {
+        Some(node) => node,
+        None => return map,
+    };
+
+    for unit in language_node
+        .descendants()
+        .filter(|n| n.tag_name().name() == "TranslationUnit")
+    {
+        for element in unit
+            .children()
+            .filter(|n| n.is_element() && n.tag_name().name() == "TranslationElement")
+        {
+            let ref_id = element.attribute("RefId").unwrap_or("");
+            if ref_id.is_empty() {
+                continue;
+            }
+            let key = strip_prefix(ref_id, prefix);
+            for trans in element
+                .children()
+                .filter(|n| n.is_element() && n.tag_name().name() == "Translation")
+            {
+                let attr_name = trans.attribute("AttributeName").unwrap_or("");
+                let text = trans.attribute("Text").unwrap_or("");
+                if attr_name.is_empty() || text.trim().is_empty() {
+                    continue;
+                }
+                map.entry(key.clone())
+                    .or_insert_with(HashMap::new)
+                    .insert(attr_name.to_string(), text.to_string());
+            }
+        }
+    }
+
+    map
+}
+
+fn select_language(doc: &Document) -> Option<String> {
+    let mut first = None;
+    for node in doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "Language")
+    {
+        let id = match node.attribute("Identifier") {
+            Some(value) => value.trim(),
+            None => continue,
+        };
+        if id.is_empty() {
+            continue;
+        }
+        if first.is_none() {
+            first = Some(id.to_string());
+        }
+        if id.to_ascii_lowercase().starts_with("en") {
+            return Some(id.to_string());
+        }
+    }
+    first
 }
 
 fn resolve_module_arguments(
