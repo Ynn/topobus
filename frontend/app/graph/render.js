@@ -4,6 +4,7 @@ import { readTheme } from '../theme.js';
 import { formatDeviceName } from '../utils.js';
 import { layoutGroupView, layoutTopologyView, alignGroupLinks, normalizeContainerLayout } from './layout.js';
 import { renderCompositeGraph } from './composite.js';
+import { renderBuildingGraph } from './building.js';
 import { updateLinkStyles, zForElement } from './styles.js';
 import { bindInteractions, fitContent, syncPaperToContent } from '../interactions.js';
 import { clearSelection } from '../selection.js';
@@ -12,16 +13,23 @@ import { scheduleMinimap, setMinimapEnabled } from '../minimap.js';
 const LARGE_GRAPH_THRESHOLD = 1200;
 
 export function renderGraph(projectData, viewType) {
-    const graphData = viewType === 'topology'
-        ? projectData.topology_graph
-        : projectData.group_address_graph;
+    const isBuilding = viewType === 'building';
+    const graphData = isBuilding
+        ? null
+        : (viewType === 'topology'
+            ? projectData.topology_graph
+            : projectData.group_address_graph);
     state.currentGraphData = graphData;
-    state.currentNodeIndex = new Map(graphData.nodes.map(node => [node.id, node]));
-    const nodeCount = graphData.nodes
-        ? (viewType === 'group'
-            ? graphData.nodes.filter(n => n.kind !== 'groupaddress').length
-            : graphData.nodes.length)
-        : 0;
+    state.currentNodeIndex = graphData && graphData.nodes
+        ? new Map(graphData.nodes.map(node => [node.id, node]))
+        : null;
+    const nodeCount = isBuilding
+        ? countBuildingNodes(projectData)
+        : (graphData && graphData.nodes
+            ? (viewType === 'group'
+                ? graphData.nodes.filter(n => n.kind !== 'groupaddress').length
+                : graphData.nodes.length)
+            : 0);
     state.isLargeGraph = nodeCount > LARGE_GRAPH_THRESHOLD;
     setMinimapEnabled(true);
 
@@ -58,11 +66,18 @@ export function renderGraph(projectData, viewType) {
                 return { elementMove: false, linkMove: false, labelMove: false };
             }
             if (viewType === 'topology') {
+                if (kind === 'area' || kind === 'line') {
+                    return { elementMove: isHeaderDragTarget(cellView), linkMove: false, labelMove: false };
+                }
                 const movable = kind === 'device';
                 return { elementMove: movable, linkMove: false, labelMove: false };
             }
             if (viewType === 'composite') {
                 const movable = kind && kind.startsWith('composite-') && kind !== 'composite-object';
+                return { elementMove: movable, linkMove: false, labelMove: false };
+            }
+            if (viewType === 'building') {
+                const movable = kind === 'building-space' || kind === 'device';
                 return { elementMove: movable, linkMove: false, labelMove: false };
             }
             return { elementMove: true, linkMove: false, labelMove: false };
@@ -90,7 +105,7 @@ export function renderGraph(projectData, viewType) {
             alignGroupLinks();
             return;
         }
-        if (state.currentView === 'topology' || state.currentView === 'composite') {
+        if (state.currentView === 'topology' || state.currentView === 'composite' || state.currentView === 'building') {
             normalizeContainerLayout();
         }
     });
@@ -104,6 +119,24 @@ export function renderGraph(projectData, viewType) {
             state.paper.unfreeze();
         }
         updateLinkStyles();
+        clearSelection();
+        syncPaperToContent({
+            resetView: state.isLargeGraph
+        });
+        if (!state.isLargeGraph) {
+            fitContent();
+        }
+        scheduleMinimap();
+        return;
+    }
+    if (viewType === 'building') {
+        renderBuildingGraph(projectData, state.graph);
+        if (state.graph.stopBatch) {
+            state.graph.stopBatch('render');
+        }
+        if (state.paper.unfreeze) {
+            state.paper.unfreeze();
+        }
         clearSelection();
         syncPaperToContent({
             resetView: state.isLargeGraph
@@ -160,6 +193,39 @@ export function renderGraph(projectData, viewType) {
         fitContent();
     }
     scheduleMinimap();
+}
+
+function countBuildingNodes(projectData) {
+    const spaces = projectData && Array.isArray(projectData.locations)
+        ? projectData.locations
+        : [];
+    let count = 0;
+    const walk = (list) => {
+        list.forEach((space) => {
+            count += 1;
+            if (Array.isArray(space.devices)) {
+                count += space.devices.length;
+            }
+            if (Array.isArray(space.children)) {
+                walk(space.children);
+            }
+        });
+    };
+    walk(spaces);
+    return count;
+}
+
+function isHeaderDragTarget(cellView) {
+    const target = state.dragIntentTarget;
+    if (!target || !cellView || !cellView.el) return false;
+    if (!cellView.el.contains(target)) return false;
+    const handle = target.closest ? target.closest('[joint-selector]') : target;
+    const selector = handle ? handle.getAttribute('joint-selector') : null;
+    if (!selector) return false;
+    return selector === 'header' ||
+        selector === 'label' ||
+        selector === 'name' ||
+        selector === 'address';
 }
 
 function scheduleLinkAlign(cell) {

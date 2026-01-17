@@ -76,6 +76,12 @@ fn load_knxproj_reader<R: Read + Seek>(reader: R, password: Option<&str>) -> Res
         &group_address_by_id,
         &manufacturer_names,
     )?;
+    let device_index: HashMap<String, (String, String)> = devices
+        .iter()
+        .map(|device| (device.instance_id.clone(), (device.individual_address.clone(), device.name.clone())))
+        .collect();
+
+    let locations = extract_locations(&data_doc, &device_index);
 
     let mut linked_devices: HashMap<String, Vec<String>> = HashMap::new();
     for device in &devices {
@@ -99,6 +105,7 @@ fn load_knxproj_reader<R: Read + Seek>(reader: R, password: Option<&str>) -> Res
         lines,
         devices,
         group_addresses,
+        locations,
     })
 }
 
@@ -923,6 +930,7 @@ fn extract_devices<R: Read + Seek>(
         }
 
         devices.push(DeviceInfo {
+            instance_id: device_id.to_string(),
             individual_address,
             name,
             manufacturer: manufacturer_name,
@@ -954,6 +962,74 @@ fn extract_devices<R: Read + Seek>(
     }
 
     Ok(devices)
+}
+
+fn extract_locations(
+    doc: &Document,
+    device_index: &HashMap<String, (String, String)>,
+) -> Vec<BuildingSpace> {
+    let mut roots = Vec::new();
+    for locations in doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "Locations")
+    {
+        for space in locations
+            .children()
+            .filter(|n| n.is_element() && n.tag_name().name() == "Space")
+        {
+            roots.push(parse_space(space, device_index));
+        }
+    }
+    roots
+}
+
+fn parse_space(
+    node: roxmltree::Node,
+    device_index: &HashMap<String, (String, String)>,
+) -> BuildingSpace {
+    let id = node.attribute("Id").unwrap_or("").to_string();
+    let name = attr_value(&node, "Name");
+    let space_type = node.attribute("Type").unwrap_or("Space").to_string();
+    let number = attr_value(&node, "Number");
+    let default_line = attr_value(&node, "DefaultLine");
+    let description = attr_value(&node, "Description");
+    let completion_status = attr_value(&node, "CompletionStatus");
+
+    let mut devices = Vec::new();
+    for dev_ref in node
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "DeviceInstanceRef")
+    {
+        if let Some(ref_id) = dev_ref.attribute("RefId") {
+            let (address, name) = device_index
+                .get(ref_id)
+                .map(|(addr, name)| (Some(addr.clone()), Some(name.clone())))
+                .unwrap_or((None, None));
+            devices.push(BuildingDeviceRef {
+                instance_id: ref_id.to_string(),
+                address,
+                name,
+            });
+        }
+    }
+
+    let children = node
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "Space")
+        .map(|child| parse_space(child, device_index))
+        .collect();
+
+    BuildingSpace {
+        id,
+        name,
+        space_type,
+        number,
+        default_line,
+        description,
+        completion_status,
+        devices,
+        children,
+    }
 }
 
 fn find_ancestor_address(node: &roxmltree::Node, tag: &str) -> Option<String> {

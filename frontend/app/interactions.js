@@ -40,9 +40,107 @@ export function bindInteractions() {
         dom.paper.addEventListener('contextmenu', (event) => event.preventDefault());
     }
 
+    if (dom && dom.paper) {
+        if (state.pointerHandlers) {
+            dom.paper.removeEventListener('pointerdown', state.pointerHandlers.down);
+            dom.paper.removeEventListener('pointermove', state.pointerHandlers.move);
+            dom.paper.removeEventListener('pointerup', state.pointerHandlers.up);
+            dom.paper.removeEventListener('pointercancel', state.pointerHandlers.up);
+        }
+        if (state.dragIntentHandlers) {
+            dom.paper.removeEventListener('pointerdown', state.dragIntentHandlers.down, true);
+            dom.paper.removeEventListener('pointerup', state.dragIntentHandlers.up, true);
+            dom.paper.removeEventListener('pointercancel', state.dragIntentHandlers.up, true);
+        }
+
+        const pointers = new Map();
+        let pinchState = null;
+
+        const startPinch = () => {
+            const values = Array.from(pointers.values());
+            if (values.length < 2) return;
+            const [p1, p2] = values;
+            const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+            const scale = state.paper ? state.paper.scale().sx || 1 : 1;
+            pinchState = { distance, scale };
+        };
+
+        const updatePinch = () => {
+            if (!pinchState || pointers.size < 2) return;
+            const values = Array.from(pointers.values());
+            const [p1, p2] = values;
+            const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+            if (!distance) return;
+            const nextScale = clamp(pinchState.scale * (distance / pinchState.distance), 0.05, 6);
+            const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+            const rect = dom.paper.getBoundingClientRect();
+            zoomAt({ x: mid.x - rect.left, y: mid.y - rect.top }, nextScale);
+        };
+
+        const onPointerDown = (event) => {
+            if (event.pointerType === 'mouse') return;
+            pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (pointers.size === 2) {
+                pinchState = null;
+                state.panState = null;
+                startPinch();
+            }
+            if (dom.paper.setPointerCapture) {
+                dom.paper.setPointerCapture(event.pointerId);
+            }
+            event.preventDefault();
+        };
+
+        const onPointerMove = (event) => {
+            if (event.pointerType === 'mouse') return;
+            if (!pointers.has(event.pointerId)) return;
+            pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (pointers.size >= 2) {
+                updatePinch();
+                event.preventDefault();
+            }
+        };
+
+        const onPointerUp = (event) => {
+            if (event.pointerType === 'mouse') return;
+            pointers.delete(event.pointerId);
+            if (pointers.size < 2) {
+                pinchState = null;
+            }
+        };
+
+        state.pointerHandlers = {
+            down: onPointerDown,
+            move: onPointerMove,
+            up: onPointerUp
+        };
+
+        dom.paper.addEventListener('pointerdown', onPointerDown, { passive: false });
+        dom.paper.addEventListener('pointermove', onPointerMove, { passive: false });
+        dom.paper.addEventListener('pointerup', onPointerUp);
+        dom.paper.addEventListener('pointercancel', onPointerUp);
+
+        const onDragIntentDown = (event) => {
+            state.dragIntentTarget = event.target;
+        };
+        const onDragIntentUp = () => {
+            state.dragIntentTarget = null;
+        };
+        state.dragIntentHandlers = {
+            down: onDragIntentDown,
+            up: onDragIntentUp
+        };
+        dom.paper.addEventListener('pointerdown', onDragIntentDown, true);
+        dom.paper.addEventListener('pointerup', onDragIntentUp, true);
+        dom.paper.addEventListener('pointercancel', onDragIntentUp, true);
+    }
+
     if (!state.interactionsBound) {
         document.addEventListener('mousemove', handlePanMove);
         document.addEventListener('mouseup', stopPan);
+        document.addEventListener('pointermove', handlePanMove);
+        document.addEventListener('pointerup', stopPan);
+        document.addEventListener('pointercancel', stopPan);
         state.interactionsBound = true;
     }
 
@@ -76,11 +174,14 @@ function startPan(event) {
         tx: paper.translate().tx,
         ty: paper.translate().ty
     };
-    document.body.style.cursor = 'grabbing';
+    if (event.pointerType !== 'touch' && event.pointerType !== 'pen') {
+        document.body.style.cursor = 'grabbing';
+    }
 }
 
 function handlePanMove(event) {
     const { panState, paper } = state;
+    if (event.type === 'pointermove' && event.pointerType === 'mouse') return;
     if (!panState || !paper) return;
     const dx = event.clientX - panState.startX;
     const dy = event.clientY - panState.startY;

@@ -504,6 +504,7 @@ function renderHierarchy(node, cells, absoluteX, absoluteY, metrics) {
         el.set('fullAddress', address);
         el.set('fullName', name);
         el.set('originalDevice', node.device || null);
+        el.set('nodeProps', node.device && node.device.properties ? node.device.properties : {});
         el.set('containerPadding', settings.padding);
         el.set('containerHeader', settings.headerHeight);
         el.set('z', 4);

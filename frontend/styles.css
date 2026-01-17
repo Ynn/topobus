@@ -85,7 +85,7 @@ h1.brand {
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
-    min-width: 140px;
+    min-width: 180px;
 }
 
 .filter-group label {
@@ -94,6 +94,13 @@ h1.brand {
     color: var(--muted);
     letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+
+.filter-group select {
+    width: 220px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .search-box {
@@ -120,7 +127,6 @@ h1.brand {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 4px 12px rgba(15, 118, 110, 0.15);
-    width: 280px;
 }
 
 .search-icon {
@@ -152,6 +158,7 @@ button {
     cursor: pointer;
     transition: all 0.2s ease;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.02);
+    white-space: nowrap;
 }
 
 .zoom-group button {
@@ -323,6 +330,7 @@ select:disabled {
     overflow: hidden;
     background: transparent;
     z-index: 1;
+    touch-action: none;
 }
 
 #paper {
@@ -330,6 +338,7 @@ select:disabled {
     min-width: 100%;
     min-height: 100%;
     cursor: grab;
+    touch-action: none;
 }
 
 #minimap-wrap {
@@ -591,6 +600,26 @@ select:disabled {
     margin-bottom: 0.4rem;
 }
 
+.panel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.panel-table th,
+.panel-table td {
+    border: 1px solid var(--border);
+    padding: 0.35rem 0.45rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.panel-table th {
+    background: rgba(15, 118, 110, 0.08);
+    color: var(--ink);
+    font-weight: 700;
+}
+
 .ga-tag {
     font-family: var(--font-mono);
     background: #f0fdfa;
@@ -662,6 +691,11 @@ select:disabled {
     #minimap {
         height: 110px;
     }
+
+    .filter-group select {
+        width: 200px;
+        max-width: 200px;
+    }
 }
 
 @media (max-width: 720px) {
@@ -672,6 +706,19 @@ select:disabled {
 
     #minimap-wrap {
         display: none;
+    }
+
+    .controls {
+        width: 100%;
+    }
+
+    .filter-group {
+        min-width: 160px;
+    }
+
+    .filter-group select {
+        width: 180px;
+        max-width: 180px;
     }
 }
 

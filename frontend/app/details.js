@@ -89,38 +89,6 @@ export function updateDetailsPanel(cell) {
         return;
     }
 
-    if (kind === 'composite-device') {
-        const infoSection = createSection('Device Info');
-        addRow(infoSection, 'Name', fullName);
-        addRow(infoSection, 'Address', fullAddress);
-        const original = cell.get('originalDevice');
-        if (original && original.properties) {
-            addRow(infoSection, 'Manufacturer', original.properties.manufacturer);
-            addRow(infoSection, 'Product', original.properties.product);
-            addRow(infoSection, 'Reference', original.properties.product_reference);
-            addRow(infoSection, 'Serial', original.properties.serial_number);
-            addRow(infoSection, 'Description', original.properties.description);
-            addRow(infoSection, 'Comment', original.properties.comment);
-            addRow(infoSection, 'Application Program', original.properties.app_program_name);
-            addRow(infoSection, 'Program Version', original.properties.app_program_version);
-            addRow(infoSection, 'Program Number', original.properties.app_program_number);
-            addRow(infoSection, 'Program Type', original.properties.app_program_type);
-            addRow(infoSection, 'Mask Version', original.properties.app_mask_version);
-            addRow(infoSection, 'Connection Type', original.properties.medium);
-            addRow(infoSection, 'Segment Number', original.properties.segment_number);
-            addRow(infoSection, 'Segment Id', original.properties.segment_id);
-            addRow(infoSection, 'Segment Medium', original.properties.segment_medium);
-            addRow(infoSection, 'Segment Domain', original.properties.segment_domain_address);
-            addRow(infoSection, 'IP Assignment', original.properties.ip_assignment);
-            addRow(infoSection, 'IP Address', original.properties.ip_address);
-            addRow(infoSection, 'Subnet Mask', original.properties.ip_subnet_mask);
-            addRow(infoSection, 'Default Gateway', original.properties.ip_default_gateway);
-            addRow(infoSection, 'MAC Address', original.properties.mac_address);
-        }
-        container.appendChild(infoSection);
-        return;
-    }
-
     if (kind === 'composite-object') {
         const infoSection = createSection('Group Object');
         addRow(infoSection, 'Name', fullName);
@@ -189,48 +157,61 @@ export function updateDetailsPanel(cell) {
         return;
     }
 
-    if (kind === 'device') {
-        const infoSection = createSection('Device Info');
-        addRow(infoSection, 'Manufacturer', props.manufacturer);
-        addRow(infoSection, 'Product', props.product);
-        addRow(infoSection, 'Reference', props.product_reference);
-        addRow(infoSection, 'Serial', props.serial_number);
+    if (kind === 'building-space') {
+        const infoSection = createSection('Building Space');
+        addRow(infoSection, 'Type', cell.get('spaceType') || props.space_type);
+        addRow(infoSection, 'Name', props.name || fullName);
+        addRow(infoSection, 'Number', props.number);
+        addRow(infoSection, 'Default Line', props.default_line);
         addRow(infoSection, 'Description', props.description);
-        addRow(infoSection, 'Comment', props.comment);
-        addRow(infoSection, 'Application Program', props.app_program_name);
-        addRow(infoSection, 'Program Version', props.app_program_version);
-        addRow(infoSection, 'Program Number', props.app_program_number);
-        addRow(infoSection, 'Program Type', props.app_program_type);
-        addRow(infoSection, 'Mask Version', props.app_mask_version);
-        addRow(infoSection, 'Connection Type', props.medium);
-        addRow(infoSection, 'Segment Number', props.segment_number);
-        addRow(infoSection, 'Segment Id', props.segment_id);
-        addRow(infoSection, 'Segment Medium', props.segment_medium);
-        addRow(infoSection, 'Segment Domain', props.segment_domain_address);
-        addRow(infoSection, 'IP Assignment', props.ip_assignment);
-        addRow(infoSection, 'IP Address', props.ip_address);
-        addRow(infoSection, 'Subnet Mask', props.ip_subnet_mask);
-        addRow(infoSection, 'Default Gateway', props.ip_default_gateway);
-        addRow(infoSection, 'MAC Address', props.mac_address);
+        addRow(infoSection, 'Completion', props.completion_status);
+        container.appendChild(infoSection);
+        return;
+    }
+
+    if (kind === 'device' || kind === 'composite-device') {
+        const deviceInfo = resolveDeviceInfo(cell, props);
+        const deviceProps = deviceInfo ? mapDeviceInfoToProps(deviceInfo) : props;
+        const infoSection = createSection('Device Info');
+        addRow(infoSection, 'Name', deviceProps.name || fullName);
+        addRow(infoSection, 'Address', deviceProps.address || fullAddress);
+        addRow(infoSection, 'Manufacturer', deviceProps.manufacturer);
+        addRow(infoSection, 'Product', deviceProps.product);
+        addRow(infoSection, 'Reference', deviceProps.product_reference);
+        addRow(infoSection, 'Serial', deviceProps.serial_number);
+        addRow(infoSection, 'Description', deviceProps.description);
+        addRow(infoSection, 'Comment', deviceProps.comment);
+        addRow(infoSection, 'Application Program', deviceProps.app_program_name);
+        addRow(infoSection, 'Program Version', deviceProps.app_program_version);
+        addRow(infoSection, 'Program Number', deviceProps.app_program_number);
+        addRow(infoSection, 'Program Type', deviceProps.app_program_type);
+        addRow(infoSection, 'Mask Version', deviceProps.app_mask_version);
+        addRow(infoSection, 'Connection Type', deviceProps.medium);
+        addRow(infoSection, 'Segment Number', deviceProps.segment_number);
+        addRow(infoSection, 'Segment Id', deviceProps.segment_id);
+        addRow(infoSection, 'Segment Medium', deviceProps.segment_medium);
+        addRow(infoSection, 'Segment Domain', deviceProps.segment_domain_address);
+        addRow(infoSection, 'IP Assignment', deviceProps.ip_assignment);
+        addRow(infoSection, 'IP Address', deviceProps.ip_address);
+        addRow(infoSection, 'Subnet Mask', deviceProps.ip_subnet_mask);
+        addRow(infoSection, 'Default Gateway', deviceProps.ip_default_gateway);
+        addRow(infoSection, 'MAC Address', deviceProps.mac_address);
         container.appendChild(infoSection);
 
-        if (config && Object.keys(config).length > 0) {
-            const configSection = createSection('Configuration');
-            Object.entries(config)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .forEach(([key, val]) => {
-                    addRow(configSection, key, val);
-                });
-            container.appendChild(configSection);
-        }
+        const configuration = deviceInfo && deviceInfo.configuration ? deviceInfo.configuration : config;
+        const configSection = buildConfigSection(configuration, createSection);
+
+        const links = deviceInfo && Array.isArray(deviceInfo.group_links)
+            ? deviceInfo.group_links
+            : (nodeData && Array.isArray(nodeData.group_links) ? nodeData.group_links : []);
 
         const children = state.graph
             ? state.graph.getElements().filter(el => el.get('parent') === cell.id)
             : [];
         const addresses = Array.from(new Set(children.map((el) => el.get('groupAddress')).filter(Boolean)));
 
-        if (nodeData && nodeData.group_links && nodeData.group_links.length > 0) {
-            const linkCount = nodeData.group_links.length;
+        if (links.length > 0) {
+            const linkCount = links.length;
             const linksSection = createSection(`Group Objects (${linkCount})`);
 
             const list = document.createElement('div');
@@ -239,7 +220,7 @@ export function updateDetailsPanel(cell) {
             list.style.flexDirection = 'column';
             list.style.gap = '8px';
 
-            nodeData.group_links.forEach(link => {
+            links.forEach(link => {
                 const item = document.createElement('div');
                 item.className = 'object-item';
                 item.style.padding = '8px';
@@ -275,6 +256,8 @@ export function updateDetailsPanel(cell) {
                     if (f.transmit) active.push('T');
                     if (f.update) active.push('U');
                     flagsSpan.textContent = active.join(' ');
+                } else if (link.flags_text) {
+                    flagsSpan.textContent = link.flags_text;
                 }
 
                 line2.appendChild(gaSpan);
@@ -293,6 +276,9 @@ export function updateDetailsPanel(cell) {
             container.appendChild(statsSection);
         }
 
+        if (configSection) {
+            container.appendChild(configSection);
+        }
     } else if (kind === 'groupobject') {
         const infoSection = createSection('Object Details');
         addRow(infoSection, 'Number', props.number);
@@ -380,7 +366,77 @@ function kindLabel(kind) {
     if (kind === 'composite-ga') return 'Group Address';
     if (kind === 'composite-device') return 'Device';
     if (kind === 'composite-object') return 'Group Object';
+    if (kind === 'building-space') return 'Building Space';
     return 'Node';
 }
 
 registerSelectionListener(updateDetailsPanel);
+
+function buildConfigSection(configuration, createSection) {
+    if (!configuration || Object.keys(configuration).length === 0) return null;
+    const section = createSection('Configuration');
+    const table = document.createElement('table');
+    table.className = 'panel-table';
+
+    const header = document.createElement('tr');
+    const keyHead = document.createElement('th');
+    keyHead.textContent = 'Parameter';
+    const valHead = document.createElement('th');
+    valHead.textContent = 'Value';
+    header.appendChild(keyHead);
+    header.appendChild(valHead);
+    table.appendChild(header);
+
+    Object.entries(configuration)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .forEach(([key, value]) => {
+            const row = document.createElement('tr');
+            const keyCell = document.createElement('td');
+            keyCell.textContent = key;
+            const valCell = document.createElement('td');
+            valCell.textContent = value;
+            row.appendChild(keyCell);
+            row.appendChild(valCell);
+            table.appendChild(row);
+        });
+
+    section.appendChild(table);
+    return section;
+}
+
+function resolveDeviceInfo(cell, props) {
+    const address = cell.get('fullAddress') || props.address || '';
+    if (!address || !state.deviceIndex) return null;
+    return state.deviceIndex.get(address) || null;
+}
+
+function mapDeviceInfoToProps(device) {
+    if (!device) return {};
+    return {
+        address: device.individual_address || '',
+        name: device.name || '',
+        manufacturer: device.manufacturer || '',
+        product: device.product || '',
+        product_reference: device.product_reference || '',
+        description: device.description || '',
+        comment: device.comment || '',
+        serial_number: device.serial_number || '',
+        app_program_name: device.app_program_name || '',
+        app_program_version: device.app_program_version || '',
+        app_program_number: device.app_program_number || '',
+        app_program_type: device.app_program_type || '',
+        app_mask_version: device.app_mask_version || '',
+        medium: device.medium_type || '',
+        segment_number: device.segment_number || '',
+        segment_id: device.segment_id || '',
+        segment_medium: device.segment_medium_type || '',
+        segment_domain_address: device.segment_domain_address || '',
+        ip_assignment: device.ip_assignment || '',
+        ip_address: device.ip_address || '',
+        ip_subnet_mask: device.ip_subnet_mask || '',
+        ip_default_gateway: device.ip_default_gateway || '',
+        mac_address: device.mac_address || '',
+        last_modified: device.last_modified || '',
+        last_download: device.last_download || ''
+    };
+}

@@ -39,6 +39,7 @@
                         <option value="group">Group Address View</option>
                         <option value="topology">Physical Topology</option>
                         <option value="composite">Group Hierarchy</option>
+                        <option value="building">Building View</option>
                     </select>
                 </div>
                 <div class="filter-group">
@@ -59,8 +60,14 @@
                 </div>
                 <button id="fit-btn">Fit View</button>
                 <button id="relayout-btn">Re-layout</button>
-                <button id="export-btn">Export SVG</button>
-                <button id="export-png-btn">Export PNG</button>
+                <div class="filter-group export-group">
+                    <label for="export-select">Export</label>
+                    <select id="export-select" aria-label="Export">
+                        <option value="">Export...</option>
+                        <option value="svg">Export SVG</option>
+                        <option value="png">Export PNG</option>
+                    </select>
+                </div>
             </div>
         </header>
 

@@ -21,6 +21,7 @@ export function setupViewSelector() {
 export function setupControls() {
     setupSearch();
     setupResizeHandle();
+    setupExportSelect();
 
     const dom = getDom();
     if (!dom) return;
@@ -51,17 +52,6 @@ export function setupControls() {
         });
     }
 
-    if (dom.exportBtn) {
-        dom.exportBtn.addEventListener('click', () => {
-            exportSvg();
-        });
-    }
-
-    if (dom.exportPngBtn) {
-        dom.exportPngBtn.addEventListener('click', () => {
-            exportPng();
-        });
-    }
 }
 
 function setupSearch() {
@@ -106,11 +96,32 @@ function setupResizeHandle() {
         e.preventDefault();
     });
 
+    dom.resizeHandle.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse') return;
+        isResizing = true;
+        dom.resizeHandle.classList.add('active');
+        document.body.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+        if (dom.resizeHandle.setPointerCapture) {
+            dom.resizeHandle.setPointerCapture(e.pointerId);
+        }
+        e.preventDefault();
+    });
+
     document.addEventListener('mousemove', (e) => {
         if (!isResizing) return;
 
         const newWidth = document.body.clientWidth - e.clientX;
 
+        if (newWidth >= 200 && newWidth <= 800) {
+            dom.infoPanel.style.width = `${newWidth}px`;
+        }
+    });
+
+    document.addEventListener('pointermove', (e) => {
+        if (e.pointerType === 'mouse') return;
+        if (!isResizing) return;
+        const newWidth = document.body.clientWidth - e.clientX;
         if (newWidth >= 200 && newWidth <= 800) {
             dom.infoPanel.style.width = `${newWidth}px`;
         }
@@ -123,6 +134,30 @@ function setupResizeHandle() {
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         }
+    });
+
+    document.addEventListener('pointerup', (e) => {
+        if (e.pointerType === 'mouse') return;
+        if (isResizing) {
+            isResizing = false;
+            dom.resizeHandle.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
+}
+
+function setupExportSelect() {
+    const dom = getDom();
+    if (!dom || !dom.exportSelect) return;
+    dom.exportSelect.addEventListener('change', (event) => {
+        const value = event.target.value;
+        if (value === 'svg') {
+            exportSvg();
+        } else if (value === 'png') {
+            exportPng();
+        }
+        event.target.value = '';
     });
 }
 

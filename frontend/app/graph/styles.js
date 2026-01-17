@@ -93,6 +93,14 @@ export function applyElementStyle(element, theme, selected) {
         return;
     }
 
+    if (kind === 'building-space') {
+        element.attr('body/fill', theme.areaFill);
+        element.attr('body/stroke', selected ? theme.accent : theme.areaBorder);
+        element.attr('body/strokeWidth', selected ? 2.4 : 1.6);
+        element.attr('header/fill', theme.lineFill);
+        return;
+    }
+
     if (kind === 'area') {
         element.attr('body/stroke', selected ? theme.accent : theme.areaBorder);
         element.attr('body/strokeWidth', selected ? 3 : 2.5);
@@ -165,6 +173,24 @@ export function applySelectionStyles() {
 
     if (kind === 'composite-main' || kind === 'composite-middle' || kind === 'composite-ga') {
         applyElementStyle(selected, theme, true);
+        return;
+    }
+
+    if (kind === 'building-space') {
+        applyElementStyle(selected, theme, true);
+        const seen = new Set([selected.id]);
+        let updated = true;
+        while (updated) {
+            updated = false;
+            elements.forEach((element) => {
+                const parentId = element.get('parent');
+                if (parentId && seen.has(parentId) && !seen.has(element.id)) {
+                    seen.add(element.id);
+                    applyElementStyle(element, theme, true);
+                    updated = true;
+                }
+            });
+        }
         return;
     }
 

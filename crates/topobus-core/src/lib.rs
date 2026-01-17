@@ -16,6 +16,9 @@ pub struct ProjectGraphs {
     pub project_name: String,
     pub topology_graph: GraphModel,
     pub group_address_graph: GraphModel,
+    pub devices: Vec<knx::DeviceInfo>,
+    pub group_addresses: Vec<knx::GroupAddressInfo>,
+    pub locations: Vec<knx::BuildingSpace>,
 }
 
 pub fn build_project_graphs(project: &KnxProjectData) -> ProjectGraphs {
@@ -23,5 +26,8 @@ pub fn build_project_graphs(project: &KnxProjectData) -> ProjectGraphs {
         project_name: project.project_name.clone(),
         topology_graph: generate_topology_graph(project),
         group_address_graph: generate_group_address_graph(project),
+        devices: project.devices.clone(),
+        group_addresses: project.group_addresses.clone(),
+        locations: project.locations.clone(),
     }
 }

@@ -501,6 +501,10 @@ export function updateContainerLabel(element, width, settings, kind) {
     element.attr('label/fontSize', fontSize);
     const font = `700 ${fontSize}px ${theme.fontSans}`;
     element.attr('label/text', fitTextToWidth(fullLabel, maxWidth, font));
+
+    const headerHeight = kind === 'area' ? settings.areaHeader : settings.lineHeader;
+    element.attr('header/height', headerHeight);
+    element.attr('label/refY', Math.round(headerHeight * 0.55));
 }
 
 export function layoutLooseDevices(deviceNodes, elementsById) {
@@ -658,7 +662,8 @@ function isContainerElement(cell) {
         kind === 'composite-main' ||
         kind === 'composite-middle' ||
         kind === 'composite-ga' ||
-        kind === 'composite-device';
+        kind === 'composite-device' ||
+        kind === 'building-space';
 }
 
 function containerDepth(cell, byId) {

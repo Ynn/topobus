@@ -60,7 +60,7 @@ export function applyFiltersAndRender() {
 export function refreshFilterControls() {
     const dom = getDom();
     if (!dom || !dom.mainGroupFilter) return;
-    dom.mainGroupFilter.disabled = state.currentView === 'topology';
+    dom.mainGroupFilter.disabled = state.currentView === 'topology' || state.currentView === 'building';
 }
 
 function updateLineOptions() {
@@ -176,12 +176,64 @@ function filterProject(project, filters) {
 
     const filteredTopology = filterTopologyGraph(project.topology_graph, areaFilter, lineFilter);
     const filteredGroup = filterGroupGraph(project.group_address_graph, areaFilter, lineFilter, mainFilter);
+    const filteredDevices = filterDevices(project.devices, areaFilter, lineFilter);
+    const filteredLocations = filterLocations(project.locations, filteredDevices, areaFilter, lineFilter);
 
     return {
         ...project,
         topology_graph: filteredTopology,
-        group_address_graph: filteredGroup
+        group_address_graph: filteredGroup,
+        devices: filteredDevices,
+        locations: filteredLocations
     };
+}
+
+function filterDevices(devices, areaFilter, lineFilter) {
+    if (!Array.isArray(devices)) return [];
+    if (areaFilter === ALL_VALUE && !lineFilter) return devices;
+    return devices.filter((device) => matchesDeviceAreaLine(device, areaFilter, lineFilter));
+}
+
+function matchesDeviceAreaLine(device, areaFilter, lineFilter) {
+    const address = String(device && device.individual_address ? device.individual_address : '');
+    const parts = address.split('.');
+    const area = normalizeDevicePart(parts[0]);
+    const line = normalizeDevicePart(parts[1]);
+    if (lineFilter) {
+        return area === lineFilter.area && line === lineFilter.line;
+    }
+    if (areaFilter === ALL_VALUE) return true;
+    return area === areaFilter;
+}
+
+function normalizeDevicePart(value) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return 'unknown';
+    if (trimmed.match(/^\d+$/)) return trimmed;
+    return trimmed;
+}
+
+function filterLocations(locations, devices, areaFilter, lineFilter) {
+    if (!Array.isArray(locations)) return [];
+    if (areaFilter === ALL_VALUE && !lineFilter) return locations;
+    const allowed = new Set(
+        Array.isArray(devices) ? devices.map((device) => device.individual_address).filter(Boolean) : []
+    );
+    const walk = (spaces) => spaces
+        .map((space) => {
+            const children = walk(Array.isArray(space.children) ? space.children : []);
+            const deviceRefs = Array.isArray(space.devices)
+                ? space.devices.filter((dev) => dev && dev.address && allowed.has(dev.address))
+                : [];
+            if (children.length === 0 && deviceRefs.length === 0) return null;
+            return {
+                ...space,
+                children,
+                devices: deviceRefs
+            };
+        })
+        .filter(Boolean);
+    return walk(locations);
 }
 
 function filterTopologyGraph(graph, areaFilter, lineFilter) {

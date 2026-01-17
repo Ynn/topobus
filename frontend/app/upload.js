@@ -70,6 +70,7 @@ async function uploadFile(file) {
         const data = await parseKnxprojFile(file, password || null);
         state.currentProject = data;
         state.groupAddressIndex = buildGroupAddressIndex(data);
+        state.deviceIndex = buildDeviceIndex(data);
         updateFilterOptions(data);
 
         hidePasswordPrompt();
@@ -142,6 +143,17 @@ function buildGroupAddressIndex(project) {
     if (!project || !project.group_addresses) return map;
     project.group_addresses.forEach((ga) => {
         map.set(ga.address, ga);
+    });
+    return map;
+}
+
+function buildDeviceIndex(project) {
+    const map = new Map();
+    if (!project || !project.devices) return map;
+    project.devices.forEach((device) => {
+        if (device && device.individual_address) {
+            map.set(device.individual_address, device);
+        }
     });
     return map;
 }

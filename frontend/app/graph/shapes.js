@@ -118,6 +118,14 @@ export function initShapes() {
                 rx: 12,
                 ry: 12
             },
+            header: {
+                refWidth: '100%',
+                height: 34,
+                fill: theme.lineFill,
+                stroke: 'none',
+                rx: 12,
+                ry: 12
+            },
             label: {
                 refX: 18,
                 refY: 18,
@@ -132,6 +140,7 @@ export function initShapes() {
     }, {
         markup: [
             { tagName: 'rect', selector: 'body' },
+            { tagName: 'rect', selector: 'header' },
             { tagName: 'text', selector: 'label' }
         ]
     });
@@ -145,6 +154,14 @@ export function initShapes() {
                 fill: theme.lineFill,
                 stroke: theme.lineBorder,
                 strokeWidth: 2,
+                rx: 10,
+                ry: 10
+            },
+            header: {
+                refWidth: '100%',
+                height: 32,
+                fill: theme.areaFill,
+                stroke: 'none',
                 rx: 10,
                 ry: 10
             },
@@ -162,6 +179,7 @@ export function initShapes() {
     }, {
         markup: [
             { tagName: 'rect', selector: 'body' },
+            { tagName: 'rect', selector: 'header' },
             { tagName: 'text', selector: 'label' }
         ]
     });

@@ -8,6 +8,7 @@ pub struct KnxProjectData {
     pub lines: Vec<LineInfo>,
     pub devices: Vec<DeviceInfo>,
     pub group_addresses: Vec<GroupAddressInfo>,
+    pub locations: Vec<BuildingSpace>,
 }
 
 /// Information about a KNX area
@@ -43,6 +44,8 @@ pub struct LineInfo {
 /// Information about a KNX device
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
+    /// Unique identifier for the device instance in the KNX project
+    pub instance_id: String,
     /// Individual address in format "A.L.D" (Area.Line.Device)
     pub individual_address: String,
     /// Device name
@@ -179,4 +182,45 @@ pub struct GroupAddressInfo {
     pub datapoint_type: Option<String>,
     /// List of device individual addresses linked to this group address
     pub linked_devices: Vec<String>,
+}
+
+/// A device reference inside a building space
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildingDeviceRef {
+    /// DeviceInstance Id reference
+    pub instance_id: String,
+    /// Individual address (if resolved)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Device name (if resolved)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Building structure node (location space)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildingSpace {
+    /// Unique identifier of the space in the KNX project
+    pub id: String,
+    /// Space name (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Space type (Building, Floor, Room, etc.)
+    pub space_type: String,
+    /// Space number (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
+    /// Default line reference (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_line: Option<String>,
+    /// Description (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Completion status (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion_status: Option<String>,
+    /// Devices directly assigned to this space
+    pub devices: Vec<BuildingDeviceRef>,
+    /// Child spaces
+    pub children: Vec<BuildingSpace>,
 }
