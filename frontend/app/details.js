@@ -8,6 +8,12 @@ import { formatDatapointType } from './dpt.js';
 export function updateDetailsPanel(cell) {
     const dom = getDom();
     if (!dom || !dom.detailsContent) return;
+    if (cell && dom.app && dom.app.classList.contains('tablet-layout')) {
+        dom.app.classList.add('panel-open');
+        if (dom.panelToggle) {
+            dom.panelToggle.setAttribute('aria-expanded', 'true');
+        }
+    }
     const container = dom.detailsContent;
     container.innerHTML = '';
 

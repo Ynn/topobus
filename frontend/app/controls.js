@@ -23,6 +23,7 @@ export function setupControls() {
     setupSearch();
     setupResizeHandle();
     setupExportSelect();
+    setupResponsiveToggles();
 
     const dom = getDom();
     if (!dom) return;
@@ -230,6 +231,61 @@ function setupExportSelect() {
         }
         event.target.value = '';
     });
+}
+
+function setupResponsiveToggles() {
+    const dom = getDom();
+    if (!dom || !dom.app) return;
+
+    const app = dom.app;
+    const tabletQuery = window.matchMedia('(max-width: 1200px)');
+
+    const setToggleState = (button, isOpen) => {
+        if (!button) return;
+        button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    };
+
+    const setFiltersOpen = (isOpen) => {
+        app.classList.toggle('filters-open', isOpen);
+        setToggleState(dom.filtersToggle, isOpen);
+    };
+
+    const setPanelOpen = (isOpen) => {
+        app.classList.toggle('panel-open', isOpen);
+        setToggleState(dom.panelToggle, isOpen);
+    };
+
+    if (dom.filtersToggle) {
+        dom.filtersToggle.addEventListener('click', () => {
+            setFiltersOpen(!app.classList.contains('filters-open'));
+        });
+    }
+
+    if (dom.panelToggle) {
+        dom.panelToggle.addEventListener('click', () => {
+            setPanelOpen(!app.classList.contains('panel-open'));
+        });
+    }
+
+    const syncTabletLayout = () => {
+        const isTablet = tabletQuery.matches;
+        app.classList.toggle('tablet-layout', isTablet);
+        if (!isTablet) {
+            app.classList.remove('filters-open', 'panel-open');
+            setToggleState(dom.filtersToggle, false);
+            setToggleState(dom.panelToggle, false);
+        } else {
+            setToggleState(dom.filtersToggle, app.classList.contains('filters-open'));
+            setToggleState(dom.panelToggle, app.classList.contains('panel-open'));
+        }
+    };
+
+    syncTabletLayout();
+    if (typeof tabletQuery.addEventListener === 'function') {
+        tabletQuery.addEventListener('change', syncTabletLayout);
+    } else if (typeof tabletQuery.addListener === 'function') {
+        tabletQuery.addListener(syncTabletLayout);
+    }
 }
 
 function ensureSuggestionWrap(input) {
