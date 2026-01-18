@@ -335,70 +335,37 @@ export function exportSvg() {
     URL.revokeObjectURL(url);
 }
 
-export function exportPng() {
-    const exportData = buildExportSvg();
-    if (!exportData) return;
-    const { svg, width, height } = exportData;
-    if (!width || !height) return;
-    const content = new XMLSerializer().serializeToString(svg);
-    const blob = new Blob([content], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = () => {
-        const ratio = window.devicePixelRatio || 1;
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(width * ratio);
-        canvas.height = Math.round(height * ratio);
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-            URL.revokeObjectURL(url);
-            return;
-        }
-        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-        URL.revokeObjectURL(url);
-        canvas.toBlob((pngBlob) => {
-            if (!pngBlob) return;
-            const pngUrl = URL.createObjectURL(pngBlob);
-            const link = document.createElement('a');
-            link.href = pngUrl;
-            link.download = `topobus-${state.currentView}.png`;
-            link.click();
-            URL.revokeObjectURL(pngUrl);
-        }, 'image/png');
-    };
-    img.onerror = () => {
-        URL.revokeObjectURL(url);
-    };
-    img.src = url;
-}
-
 function buildExportSvg() {
     const { paper, graph } = state;
     if (!paper || !paper.svg || !graph) return null;
     const svg = paper.svg.cloneNode(true);
     svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    const viewport = svg.querySelector('.joint-viewport')
-        || svg.querySelector('.joint-layers')
+    const layers = svg.querySelector('.joint-layers')
         || svg.querySelector('[joint-selector="layers"]');
-    const bounds = computeGraphBounds(graph.getElements());
-    const padding = 60;
+    const viewport = svg.querySelector('.joint-viewport');
+    const bounds = computeExportBounds(graph);
+    const padding = 2;
     let width = 0;
     let height = 0;
     if (bounds) {
-        width = Math.max(1, Math.round(bounds.width + padding * 2));
-        height = Math.max(1, Math.round(bounds.height + padding * 2));
-        if (viewport) {
-            viewport.setAttribute(
-                'transform',
-                `translate(${padding - bounds.x}, ${padding - bounds.y}) scale(1)`
-            );
+        width = Math.max(1, Math.ceil(bounds.width + padding * 2));
+        height = Math.max(1, Math.ceil(bounds.height + padding * 2));
+        const tx = padding - bounds.x;
+        const ty = padding - bounds.y;
+        const target = layers || viewport;
+        if (target) {
+            target.setAttribute('transform', `translate(${tx}, ${ty})`);
+        }
+        if (layers && layers !== target) {
+            layers.removeAttribute('transform');
+        }
+        if (viewport && viewport !== target) {
+            viewport.removeAttribute('transform');
         }
     } else if (paper.getComputedSize) {
         const size = paper.getComputedSize();
-        width = Math.max(1, Math.round(size.width));
-        height = Math.max(1, Math.round(size.height));
+        width = Math.max(1, Math.ceil(size.width));
+        height = Math.max(1, Math.ceil(size.height));
     }
 
     if (width && height) {
@@ -408,4 +375,25 @@ function buildExportSvg() {
     }
 
     return { svg, width, height };
+}
+
+function computeExportBounds(graph) {
+    const cells = graph && typeof graph.getCells === 'function'
+        ? graph.getCells()
+        : [];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    cells.forEach((cell) => {
+        if (!cell || typeof cell.getBBox !== 'function') return;
+        const bbox = cell.getBBox();
+        if (!bbox) return;
+        minX = Math.min(minX, bbox.x);
+        minY = Math.min(minY, bbox.y);
+        maxX = Math.max(maxX, bbox.x + bbox.width);
+        maxY = Math.max(maxY, bbox.y + bbox.height);
+    });
+    if (!isFinite(minX) || !isFinite(minY)) return null;
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }

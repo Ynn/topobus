@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { getDom } from './dom.js';
 import { applyFiltersAndRender, refreshFilterControls } from './filters.js';
-import { zoomBy, exportSvg, exportPng, fitContent, syncPaperToContent } from './interactions.js';
+import { zoomBy, exportSvg, fitContent, syncPaperToContent } from './interactions.js';
 import { selectCell } from './selection.js';
 import { focusCell } from './interactions.js';
 import { scheduleMinimap } from './minimap.js';
@@ -257,8 +257,6 @@ function setupExportSelect() {
         const value = event.target.value;
         if (value === 'svg') {
             exportSvg();
-        } else if (value === 'png') {
-            exportPng();
         }
         event.target.value = '';
     });
