@@ -25,6 +25,7 @@ export function initDom() {
         resizeHandle: document.getElementById('resize-handle'),
         infoPanel: document.getElementById('info-panel'),
         loading: document.getElementById('loading'),
+        loadingMessage: document.getElementById('loading-message'),
         visualization: document.getElementById('visualization'),
         projectName: document.getElementById('project-name'),
         stats: document.getElementById('stats'),

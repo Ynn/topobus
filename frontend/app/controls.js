@@ -6,6 +6,35 @@ import { selectCell } from './selection.js';
 import { focusCell } from './interactions.js';
 import { scheduleMinimap } from './minimap.js';
 
+function runWithLoading(message, action) {
+    const dom = getDom();
+    if (!dom || !dom.loading || typeof action !== 'function') {
+        if (typeof action === 'function') {
+            action();
+        }
+        return;
+    }
+    if (dom.loadingMessage) {
+        dom.loadingMessage.textContent = message;
+    }
+    dom.loading.classList.remove('hidden');
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            let error = null;
+            try {
+                action();
+            } catch (err) {
+                error = err;
+            }
+            dom.loading.classList.add('hidden');
+            if (error) {
+                throw error;
+            }
+        });
+    });
+}
+
 export function setupViewSelector() {
     const dom = getDom();
     if (!dom || !dom.viewSelector) return;
@@ -13,7 +42,9 @@ export function setupViewSelector() {
     dom.viewSelector.addEventListener('change', (e) => {
         state.currentView = e.target.value;
         if (state.currentProject) {
-            applyFiltersAndRender();
+            runWithLoading('Loading graph...', () => {
+                applyFiltersAndRender();
+            });
         }
         refreshViewControls();
     });

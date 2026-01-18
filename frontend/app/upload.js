@@ -63,6 +63,9 @@ async function uploadFile(file) {
     const dom = getDom();
     if (!dom) return;
     dom.uploadZone.classList.add('hidden');
+    if (dom.loadingMessage) {
+        dom.loadingMessage.textContent = 'Loading project...';
+    }
     dom.loading.classList.remove('hidden');
 
     try {
