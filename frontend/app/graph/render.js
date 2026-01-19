@@ -160,7 +160,7 @@ export function renderGraph(projectData, viewType) {
     }
 
     const nodesToRender = viewType === 'group'
-        ? graphData.nodes.filter(n => n.kind !== 'groupaddress')
+        ? filterGroupViewNodes(graphData.nodes)
         : graphData.nodes;
 
     const elements = [];
@@ -204,6 +204,20 @@ export function renderGraph(projectData, viewType) {
         fitContent();
     }
     scheduleMinimap();
+}
+
+function filterGroupViewNodes(nodes) {
+    const deviceIds = new Set();
+    nodes.forEach((node) => {
+        if (node.kind === 'groupobject' && node.parent_id) {
+            deviceIds.add(node.parent_id);
+        }
+    });
+    return nodes.filter((node) => {
+        if (node.kind === 'groupaddress') return false;
+        if (node.kind === 'device') return deviceIds.has(node.id);
+        return true;
+    });
 }
 
 function countBuildingNodes(projectData) {

@@ -640,13 +640,10 @@ fn extract_devices<R: Read + Seek>(
         let device_addr_attr = device_node.attribute("Address");
         let area = find_ancestor_address(&device_node, "Area");
         let line = find_ancestor_address(&device_node, "Line");
-
-        let individual_address = match (area, line, device_addr_attr) {
-            (Some(a), Some(l), Some(d)) if d != "0" => format!("{}.{}.{}", a, l, d),
-            (Some(a), Some(l), _) => format!("{}.{}. - ({})", a, l, short_id(device_id)),
-            (_, _, Some(d)) => d.to_string(),
-            (_, _, None) => format!(" - ({})", short_id(device_id)),
-        };
+        let mut device_addr = device_addr_attr
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
 
         let raw_name = device_node
             .attribute("Name")
@@ -719,11 +716,35 @@ fn extract_devices<R: Read + Seek>(
             None
         };
 
+        let is_coupler = hardware_data
+            .and_then(|data| {
+                product_ref_id
+                    .as_ref()
+                    .and_then(|id| data.flags_by_ref.get(id))
+                    .or_else(|| {
+                        hardware2program
+                            .as_ref()
+                            .and_then(|id| data.flags_by_ref.get(id))
+                    })
+            })
+            .map(|flags| flags.is_coupler)
+            .unwrap_or(false);
+        if device_addr.is_none() && is_coupler {
+            device_addr = Some("0".to_string());
+        }
+
         let (product_name, product_reference) = product_ref_id
             .as_ref()
             .and_then(|id| hardware_data.and_then(|data| data.products.get(id)))
             .map(|info| (info.name.clone(), info.order_number.clone()))
             .unwrap_or((None, None));
+
+        let individual_address = match (area, line, device_addr.as_deref()) {
+            (Some(a), Some(l), Some(d)) => format!("{}.{}.{}", a, l, d),
+            (Some(a), Some(l), None) => format!("{}.{}. - ({})", a, l, short_id(device_id)),
+            (_, _, Some(d)) => d.to_string(),
+            (_, _, None) => format!(" - ({})", short_id(device_id)),
+        };
 
         let name = if !raw_name.is_empty() {
             raw_name.clone()
@@ -1155,43 +1176,56 @@ fn load_hardware_data<R: Read + Seek>(
         Document::parse(strip_bom(&xml)).with_context(|| format!("Failed to parse {}", path))?;
 
     let mut hardware2program = HashMap::new();
-    for hw in doc
-        .descendants()
-        .filter(|n| n.tag_name().name() == "Hardware2Program")
-    {
-        let id = match hw.attribute("Id") {
-            Some(id) => id.to_string(),
-            None => continue,
-        };
-        let app_ref = hw
-            .descendants()
-            .find(|n| n.tag_name().name() == "ApplicationProgramRef")
-            .and_then(|n| n.attribute("RefId"))
-            .map(|s| s.to_string());
-        if let Some(app_ref) = app_ref {
-            hardware2program.insert(id, app_ref);
-        }
-    }
-
     let mut products = HashMap::new();
-    for product in doc
+    let mut flags_by_ref = HashMap::new();
+
+    for hardware in doc
         .descendants()
-        .filter(|n| n.tag_name().name() == "Product")
+        .filter(|n| n.tag_name().name() == "Hardware")
     {
-        let id = match product.attribute("Id") {
-            Some(id) => id.to_string(),
-            None => continue,
-        };
-        let name = attr_value(&product, "Text");
-        let order_number = attr_value(&product, "OrderNumber");
-        products
-            .entry(id)
-            .or_insert(ProductInfo { name, order_number });
+        let is_coupler = parse_hardware_flag(hardware.attribute("IsCoupler"));
+        let flags = HardwareFlags { is_coupler };
+
+        for hw in hardware
+            .descendants()
+            .filter(|n| n.is_element() && n.tag_name().name() == "Hardware2Program")
+        {
+            let id = match hw.attribute("Id") {
+                Some(id) => id.to_string(),
+                None => continue,
+            };
+            let app_ref = hw
+                .descendants()
+                .find(|n| n.is_element() && n.tag_name().name() == "ApplicationProgramRef")
+                .and_then(|n| n.attribute("RefId"))
+                .map(|s| s.to_string());
+            if let Some(app_ref) = app_ref {
+                hardware2program.insert(id.clone(), app_ref);
+            }
+            flags_by_ref.insert(id, flags);
+        }
+
+        for product in hardware
+            .descendants()
+            .filter(|n| n.is_element() && n.tag_name().name() == "Product")
+        {
+            let id = match product.attribute("Id") {
+                Some(id) => id.to_string(),
+                None => continue,
+            };
+            let name = attr_value(&product, "Text");
+            let order_number = attr_value(&product, "OrderNumber");
+            products
+                .entry(id.clone())
+                .or_insert(ProductInfo { name, order_number });
+            flags_by_ref.insert(id, flags);
+        }
     }
 
     Ok(HardwareData {
         hardware2program,
         products,
+        flags_by_ref,
     })
 }
 
@@ -1595,6 +1629,10 @@ fn parse_flag(value: Option<&str>) -> Option<bool> {
     }
 }
 
+fn parse_hardware_flag(value: Option<&str>) -> bool {
+    matches!(value, Some("1") | Some("true") | Some("True"))
+}
+
 struct AppProgram {
     name: Option<String>,
     version: Option<String>,
@@ -1610,6 +1648,12 @@ struct AppProgram {
 struct HardwareData {
     hardware2program: HashMap<String, String>,
     products: HashMap<String, ProductInfo>,
+    flags_by_ref: HashMap<String, HardwareFlags>,
+}
+
+#[derive(Clone, Copy)]
+struct HardwareFlags {
+    is_coupler: bool,
 }
 
 #[derive(Clone)]

@@ -49,11 +49,16 @@ export function applyLinkStyle(link, theme, highlighted) {
 export function applyElementStyle(element, theme, selected) {
     const kind = element.get('kind');
     if (kind === 'device' || kind === 'composite-device') {
-        element.attr('body/stroke', selected ? theme.accent : theme.deviceBorder);
+        const props = element.get('nodeProps') || {};
+        const isCoupler = String(props.is_coupler || '').toLowerCase() === 'true';
+        const border = selected ? theme.accent : (isCoupler ? theme.couplerBorder : theme.deviceBorder);
+        const fill = isCoupler ? theme.couplerFill : theme.deviceFill;
+        const header = isCoupler ? theme.couplerHeader : theme.deviceHeader;
+        element.attr('body/stroke', border);
         element.attr('body/strokeWidth', selected ? 3 : 2);
-        element.attr('body/fill', theme.deviceFill);
-        element.attr('header/fill', theme.deviceHeader);
-        element.attr('headerMask/fill', theme.deviceHeader);
+        element.attr('body/fill', fill);
+        element.attr('header/fill', header);
+        element.attr('headerMask/fill', header);
         return;
     }
 

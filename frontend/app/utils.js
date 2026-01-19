@@ -109,6 +109,22 @@ export function parseAddress(value) {
     return parsed.map((num) => (Number.isFinite(num) ? num : 0));
 }
 
+export function getCouplerKind(address) {
+    const parts = String(address || '').split('.');
+    const parsed = parts.map((part) => {
+        const match = String(part).trim().match(/^(\d+)/);
+        return match ? Number(match[1]) : Number.NaN;
+    });
+    while (parsed.length < 3) parsed.push(Number.NaN);
+    const [area, line, device] = parsed;
+    if (!Number.isFinite(device) || device !== 0) return '';
+    if (!Number.isFinite(area) || !Number.isFinite(line)) return '';
+    if (line === 0) {
+        return area === 0 ? 'backbone' : 'area';
+    }
+    return 'line';
+}
+
 export function compareGroupAddressNodes(a, b) {
     const aAddr = getNodeProp(a, 'group_address', '');
     const bAddr = getNodeProp(b, 'group_address', '');

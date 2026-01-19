@@ -1,5 +1,5 @@
 import { readTheme, getLayoutSettings } from '../theme.js';
-import { formatDeviceName, measureTextWidth } from '../utils.js';
+import { formatDeviceName, measureTextWidth, getCouplerKind } from '../utils.js';
 import { updateDeviceText } from './layout.js';
 
 export function renderBuildingGraph(projectData, graph) {
@@ -353,7 +353,7 @@ function renderHierarchy(node, cells, absoluteX, absoluteY, metrics, depth) {
 
 function mapDeviceInfoToProps(device) {
     if (!device) return {};
-    return {
+    const props = {
         address: device.individual_address || '',
         name: device.name || '',
         manufacturer: device.manufacturer || '',
@@ -380,6 +380,12 @@ function mapDeviceInfoToProps(device) {
         last_modified: device.last_modified || '',
         last_download: device.last_download || ''
     };
+    const couplerKind = getCouplerKind(device.individual_address);
+    if (couplerKind) {
+        props.is_coupler = 'true';
+        props.coupler_kind = couplerKind;
+    }
+    return props;
 }
 
 function safeId(value) {

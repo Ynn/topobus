@@ -135,6 +135,10 @@ fn device_properties(device: &DeviceInfo) -> HashMap<String, String> {
     if let Some(last_download) = &device.last_download {
         properties.insert("last_download".to_string(), last_download.clone());
     }
+    if let Some(kind) = coupler_kind_from_address(&device.individual_address) {
+        properties.insert("is_coupler".to_string(), "true".to_string());
+        properties.insert("coupler_kind".to_string(), kind.to_string());
+    }
     properties
 }
 
@@ -155,6 +159,43 @@ fn parse_address_part(value: &str) -> Option<String> {
         return Some(trimmed.to_string());
     }
     None
+}
+
+fn parse_address_number(value: Option<&str>) -> Option<u16> {
+    let trimmed = value?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+fn parse_individual_address(address: &str) -> (Option<u16>, Option<u16>, Option<u16>) {
+    let mut parts = address.split('.');
+    let area = parse_address_number(parts.next());
+    let line = parse_address_number(parts.next());
+    let device = parse_address_number(parts.next());
+    (area, line, device)
+}
+
+fn coupler_kind_from_address(address: &str) -> Option<&'static str> {
+    let (area, line, device) = parse_individual_address(address);
+    if device != Some(0) {
+        return None;
+    }
+    if area.is_none() || line.is_none() {
+        return None;
+    }
+    if line == Some(0) {
+        if area == Some(0) {
+            return Some("backbone");
+        }
+        return Some("area");
+    }
+    Some("line")
 }
 
 /// Generate topology graph from KNX project data
