@@ -11,6 +11,7 @@ export const state = {
     minimapFrame: null,
     minimapTimeout: null,
     wheelHandler: null,
+    middlePanHandler: null,
     pointerHandlers: null,
     dragIntentHandlers: null,
     dragIntentTarget: null,

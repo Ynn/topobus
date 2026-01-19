@@ -47,6 +47,23 @@ export function bindInteractions() {
     }
 
     if (dom && dom.paper) {
+        if (state.middlePanHandler) {
+            dom.paper.removeEventListener('mousedown', state.middlePanHandler, true);
+        }
+
+        const onMiddleMouseDown = (event) => {
+            if (event.button !== 1) return;
+            startPan(event);
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.stopImmediatePropagation) {
+                event.stopImmediatePropagation();
+            }
+        };
+
+        state.middlePanHandler = onMiddleMouseDown;
+        dom.paper.addEventListener('mousedown', onMiddleMouseDown, true);
+
         if (state.pointerHandlers) {
             dom.paper.removeEventListener('pointerdown', state.pointerHandlers.down);
             dom.paper.removeEventListener('pointermove', state.pointerHandlers.move);
