@@ -38,6 +38,15 @@ export function bindInteractions() {
         const nextScale = clamp(scale * factor, 0.05, 6);
         const rect = paper.el.getBoundingClientRect();
         const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+
+        // Performance optimization: track zoom state for CSS
+        paper.el.classList.add('is-zooming');
+        if (state.zoomTimeout) clearTimeout(state.zoomTimeout);
+        state.zoomTimeout = setTimeout(() => {
+            if (state.paper) state.paper.el.classList.remove('is-zooming');
+            state.zoomTimeout = null;
+        }, 200);
+
         zoomAt(point, nextScale);
     };
 
@@ -274,6 +283,15 @@ export function zoomAt(point, nextScale) {
     const tx = point.x - local.x * nextScale;
     const ty = point.y - local.y * nextScale;
     paper.translate(tx, ty);
+
+    // Zoom-based LOD: toggle class for CSS optimizations
+    const { sx } = paper.scale();
+    if (sx < 0.35) {
+        paper.el.classList.add('zoom-far');
+    } else {
+        paper.el.classList.remove('zoom-far');
+    }
+
     scheduleMinimap();
 }
 
@@ -297,6 +315,15 @@ export function fitContent() {
     if (wasLarge) {
         syncPaperToContent({ limitToViewport: false, resetView: false });
     }
+
+    // Refresh Zoom-based LOD after fit
+    const currentScale = paper.scale().sx;
+    if (currentScale < 0.35) {
+        paper.el.classList.add('zoom-far');
+    } else {
+        paper.el.classList.remove('zoom-far');
+    }
+
     scheduleMinimap();
 }
 

@@ -4,16 +4,30 @@
     box-sizing: border-box;
 }
 
-/* Performance optimization: hide links during pan */
-.is-panning .joint-type-standard-link {
-    display: none !important;
-}
 
-/* Fix: links should not block panning/mouse events */
+/* Performance: constant link visibility state */
 .joint-type-standard-link {
     pointer-events: none;
 }
 
+/* Performance: hide links during pan/zoom for maximum fluidity */
+.is-panning .joint-type-standard-link,
+.is-zooming .joint-type-standard-link {
+    display: none !important;
+}
+
+/* SMART LOD: Hide text only when zoomed out far (flicker-free) */
+.zoom-far [joint-selector="name"],
+.zoom-far [joint-selector="address"],
+.zoom-far [joint-selector="label"] {
+    display: none !important;
+}
+
+/* Rendering hints for smoother interaction */
+.is-panning #paper-container {
+    text-rendering: optimizeSpeed;
+    shape-rendering: optimizeSpeed;
+}
 
 :root {
     --font-sans: "Space Grotesk", "IBM Plex Sans", "Fira Sans", sans-serif;

@@ -103,6 +103,12 @@ export function renderGraph(projectData, viewType) {
         }
     });
 
+    if (state.isLargeGraph) {
+        state.paper.el.classList.add('is-large-graph');
+    } else {
+        state.paper.el.classList.remove('is-large-graph');
+    }
+
     bindInteractions();
     if (state.paper.freeze) {
         state.paper.freeze();

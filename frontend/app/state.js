@@ -10,6 +10,7 @@ export const state = {
     minimapState: null,
     minimapFrame: null,
     minimapTimeout: null,
+    zoomTimeout: null,
     wheelHandler: null,
     middlePanHandler: null,
     pointerHandlers: null,
