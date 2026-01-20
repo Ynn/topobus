@@ -6,7 +6,7 @@ import { layoutGroupView, layoutTopologyView, alignGroupLinks, normalizeContaine
 import { renderCompositeGraph } from './composite.js';
 import { renderBuildingGraph } from './building.js';
 import { updateLinkStyles, zForElement } from './styles.js';
-import { bindInteractions, fitContent, syncPaperToContent } from '../interactions.js';
+import { bindInteractions, fitContent, syncPaperToContent, updateZoomLOD } from '../interactions.js';
 import { clearSelection } from '../selection.js';
 import { scheduleMinimap, setMinimapEnabled } from '../minimap.js';
 
@@ -217,6 +217,7 @@ export function renderGraph(projectData, viewType) {
     if (!state.isLargeGraph) {
         fitContent();
     }
+    updateZoomLOD();
     scheduleMinimap();
 }
 

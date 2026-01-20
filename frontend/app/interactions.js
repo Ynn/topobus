@@ -283,16 +283,19 @@ export function zoomAt(point, nextScale) {
     const tx = point.x - local.x * nextScale;
     const ty = point.y - local.y * nextScale;
     paper.translate(tx, ty);
+    updateZoomLOD();
+    scheduleMinimap();
+}
 
-    // Zoom-based LOD: toggle class for CSS optimizations
+export function updateZoomLOD() {
+    const { paper } = state;
+    if (!paper) return;
     const { sx } = paper.scale();
     if (sx < 0.35) {
         paper.el.classList.add('zoom-far');
     } else {
         paper.el.classList.remove('zoom-far');
     }
-
-    scheduleMinimap();
 }
 
 export function zoomBy(factor) {
@@ -316,14 +319,7 @@ export function fitContent() {
         syncPaperToContent({ limitToViewport: false, resetView: false });
     }
 
-    // Refresh Zoom-based LOD after fit
-    const currentScale = paper.scale().sx;
-    if (currentScale < 0.35) {
-        paper.el.classList.add('zoom-far');
-    } else {
-        paper.el.classList.remove('zoom-far');
-    }
-
+    updateZoomLOD();
     scheduleMinimap();
 }
 
@@ -342,6 +338,7 @@ export function syncPaperToContent(options = {}) {
     const minHeight = container ? container.clientHeight : 0;
     if (options.resetView) {
         paper.scale(1, 1);
+        updateZoomLOD();
     }
     const scale = paper.scale().sx || 1;
     const limitToViewport = options.limitToViewport === true;
