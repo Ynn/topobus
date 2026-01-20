@@ -31,19 +31,10 @@ jobs:
       - name: Prepare site
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME}"
-          dest="dist/${version}"
-          mkdir -p "${dest}"
-          cp -a frontend/. "${dest}/"
-          cat > dist/index.html <<EOF
-          <!DOCTYPE html>
-          <html lang="en">
-          <meta charset="utf-8">
-          <meta http-equiv="refresh" content="0; url=${version}/">
-          <title>TopoBus</title>
-          <a href="${version}/">TopoBus ${version}</a>
-          </html>
-          EOF
+          mkdir -p dist
+          cp -a frontend/. dist/
+          # Inject version into Service Worker for cache busting
+          sed -i "s/CACHE_NAME = 'topobus-static-v.*'/CACHE_NAME = 'topobus-static-${GITHUB_REF_NAME}'/" dist/sw.js
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
