@@ -10,9 +10,10 @@
     pointer-events: none;
 }
 
-/* Performance: hide links during pan/zoom for maximum fluidity */
+/* Performance: hide links during pan/zoom/drag for maximum fluidity */
 .is-panning .joint-type-standard-link,
-.is-zooming .joint-type-standard-link {
+.is-zooming .joint-type-standard-link,
+.is-large-graph.is-dragging .joint-type-standard-link {
     display: none !important;
 }
 

@@ -20,7 +20,13 @@ export function bindInteractions() {
     paper.on('element:pointerdown', (elementView, event) => {
         if (shouldPanFromElement(elementView, event)) {
             startPan(event);
+        } else {
+            paper.el.classList.add('is-dragging');
         }
+    });
+
+    paper.on('element:pointerup', () => {
+        paper.el.classList.remove('is-dragging');
     });
 
     const dom = getDom();
@@ -235,6 +241,7 @@ function stopPan() {
     if (state.paper) {
         state.paper.setInteractivity(state.interactiveFunc || true);
         state.paper.el.classList.remove('is-panning');
+        state.paper.el.classList.remove('is-dragging');
     }
 
     // Update minimap once at the end of panning
