@@ -3,9 +3,9 @@ import { readTheme } from '../theme.js';
 
 export function zForElement(kind, viewType) {
     if (viewType === 'group') {
-        if (kind === 'groupobject') return 3;
+        if (kind === 'groupobject') return 10;
         if (kind === 'device') return 1;
-        return 2;
+        return 5;
     }
     if (kind === 'area') return 1;
     if (kind === 'line') return 2;

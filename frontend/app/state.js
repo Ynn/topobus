@@ -38,6 +38,7 @@ export const state = {
     },
     isLargeGraph: false,
     minimapDisabled: false,
+    interactiveFunc: null,
     viewPreferences: {
         linkStyle: 'auto',
         density: 'comfortable'

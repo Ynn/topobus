@@ -4,6 +4,17 @@
     box-sizing: border-box;
 }
 
+/* Performance optimization: hide links during pan */
+.is-panning .joint-type-standard-link {
+    display: none !important;
+}
+
+/* Fix: links should not block panning/mouse events */
+.joint-type-standard-link {
+    pointer-events: none;
+}
+
+
 :root {
     --font-sans: "Space Grotesk", "IBM Plex Sans", "Fira Sans", sans-serif;
     --font-mono: "IBM Plex Mono", "JetBrains Mono", "Fira Code", monospace;

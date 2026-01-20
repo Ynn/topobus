@@ -47,7 +47,14 @@ export function renderGraph(projectData, viewType) {
         dom.paper.innerHTML = '';
     }
 
-    state.graph = new joint.dia.Graph({}, { cellNamespace: joint.shapes });
+    const GraphModel = joint.dia.SearchGraph || joint.dia.Graph;
+    const sortingMode = (joint.dia.Paper.sorting && joint.dia.Paper.sorting.APPROX) || joint.dia.Paper.sorting.EXACT;
+
+    state.graph = new GraphModel({}, {
+        cellNamespace: joint.shapes,
+        search: joint.dia.SearchGraph ? { type: 'quadtree' } : undefined
+    });
+
     state.paper = new joint.dia.Paper({
         el: dom.paper,
         model: state.graph,
@@ -55,11 +62,12 @@ export function renderGraph(projectData, viewType) {
         height: '100%',
         gridSize: 10,
         drawGrid: false,
+        async: true,
         background: { color: 'transparent' },
         cellViewNamespace: joint.shapes,
-        sorting: joint.dia.Paper.sorting.EXACT,
+        sorting: sortingMode,
         validateUnembedding: () => false,
-        interactive: (cellView) => {
+        interactive: state.interactiveFunc = (cellView) => {
             const kind = cellView.model.get('kind');
             if (viewType === 'group') {
                 if (kind === 'groupobject') {
@@ -174,7 +182,7 @@ export function renderGraph(projectData, viewType) {
 
     const links = graphData.edges.map(edge => createLinkElement(edge));
     elements.forEach(element => element.set('z', zForElement(element.get('kind'), viewType)));
-    links.forEach(link => link.set('z', viewType === 'group' ? 2 : 1));
+    links.forEach(link => link.set('z', -1));
 
     if (state.graph.resetCells) {
         state.graph.resetCells(links.concat(elements));

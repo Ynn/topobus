@@ -197,6 +197,11 @@ function startPan(event) {
         tx: paper.translate().tx,
         ty: paper.translate().ty
     };
+
+    // Performance optimization: disable interactivity during pan
+    paper.setInteractivity(false);
+    paper.el.classList.add('is-panning');
+
     if (event.pointerType !== 'touch' && event.pointerType !== 'pen') {
         document.body.style.cursor = 'grabbing';
     }
@@ -209,12 +214,22 @@ function handlePanMove(event) {
     const dx = event.clientX - panState.startX;
     const dy = event.clientY - panState.startY;
     paper.translate(panState.tx + dx, panState.ty + dy);
-    scheduleMinimap();
+    // REMOVED: scheduleMinimap() - Don't update minimap DURING pan for better performance
 }
 
 function stopPan() {
+    if (!state.panState) return;
     state.panState = null;
     document.body.style.cursor = 'default';
+
+    // Restore interactivity after pan
+    if (state.paper) {
+        state.paper.setInteractivity(state.interactiveFunc || true);
+        state.paper.el.classList.remove('is-panning');
+    }
+
+    // Update minimap once at the end of panning
+    scheduleMinimap();
 }
 
 function shouldPanFromElement(elementView, event) {
