@@ -375,11 +375,23 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
             if let Some(dpt) = &link.datapoint_type {
                 obj_properties.insert("datapoint_type".to_string(), dpt.clone());
             }
+            if let Some(channel) = &link.channel {
+                obj_properties.insert("channel".to_string(), channel.clone());
+            }
             if let Some(num) = link.number {
                 obj_properties.insert("number".to_string(), num.to_string());
             }
             if let Some(desc) = &link.description {
                 obj_properties.insert("description".to_string(), desc.clone());
+            }
+            if let Some(security) = &link.security {
+                obj_properties.insert("security".to_string(), security.clone());
+            }
+            if let Some(function) = &link.building_function {
+                obj_properties.insert("building_function".to_string(), function.clone());
+            }
+            if let Some(part) = &link.building_part {
+                obj_properties.insert("building_part".to_string(), part.clone());
             }
             if let Some(flags) = &link.flags {
                 let mut flags_str = Vec::new();
@@ -455,12 +467,12 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
         if let Some(middle_comment) = &ga.middle_group_comment {
             properties.insert("middle_comment".to_string(), middle_comment.clone());
         }
-        if let Some(desc) = &ga.description {
-            properties.insert("description".to_string(), desc.clone());
-        }
-        if let Some(comment) = &ga.comment {
-            properties.insert("comment".to_string(), comment.clone());
-        }
+            if let Some(desc) = &ga.description {
+                properties.insert("description".to_string(), desc.clone());
+            }
+            if let Some(comment) = &ga.comment {
+                properties.insert("comment".to_string(), comment.clone());
+            }
 
         nodes.push(Node {
             id: ga_id,

@@ -1,6 +1,5 @@
 import { state } from './state.js';
 import { getDom } from './dom.js';
-import { toBool } from './utils.js';
 import { registerSelectionListener, selectCell } from './selection.js';
 import { focusCell } from './interactions.js';
 import { formatDatapointType } from './dpt.js';
@@ -315,7 +314,9 @@ export function updateDetailsPanel(cell) {
             settingsSection.appendChild(row);
         }
 
-        addRow(settingsSection, 'Direction', describeDirection(props.is_transmitter, props.is_receiver));
+        addRow(settingsSection, 'Security', props.security);
+        addRow(settingsSection, 'Building Function', props.building_function);
+        addRow(settingsSection, 'Building Part', props.building_part);
         container.appendChild(settingsSection);
 
         const parentId = cell.get('parent');
@@ -343,15 +344,6 @@ export function updateDetailsPanel(cell) {
         });
         container.appendChild(infoSection);
     }
-}
-
-function describeDirection(isTx, isRx) {
-    const tx = toBool(isTx);
-    const rx = toBool(isRx);
-    if (tx && rx) return 'Transmit + Receive';
-    if (tx) return 'Transmit';
-    if (rx) return 'Receive';
-    return 'Passive';
 }
 
 function kindLabel(kind) {

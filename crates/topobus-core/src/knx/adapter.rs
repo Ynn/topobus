@@ -824,6 +824,13 @@ fn extract_devices<R: Read + Seek>(
                 .and_then(|ref_id| app.and_then(|program| program.com_objects.get(ref_id)));
             let com_data = resolve_com_data(com_def, app);
             let com_flags = com_data.flags;
+            let link_security = attr_value(&com_ref, "Security");
+            let link_building_function = attr_value(&com_ref, "BuildingFunction")
+                .or_else(|| attr_value(&com_ref, "BuildingFunctionRefId"))
+                .or_else(|| attr_value(&com_ref, "BuildingFunctionId"));
+            let link_building_part = attr_value(&com_ref, "BuildingPart")
+                .or_else(|| attr_value(&com_ref, "BuildingPartRefId"))
+                .or_else(|| attr_value(&com_ref, "BuildingPartId"));
             let base_name = resolve_object_name(com_def, com_obj, &arg_values);
             let object_function_text =
                 resolve_template(
@@ -902,6 +909,9 @@ fn extract_devices<R: Read + Seek>(
                     datapoint_type: com_data.datapoint_type.clone(),
                     number: com_data.number,
                     description: com_data.description.clone(),
+                    security: link_security.clone(),
+                    building_function: link_building_function.clone(),
+                    building_part: link_building_part.clone(),
                     flags: Some(com_flags.to_model_flags()),
                 });
             }

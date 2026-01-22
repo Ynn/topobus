@@ -143,6 +143,14 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
         }))
     };
 
+    const dom = getDom();
+    if (dom && dom.loading) {
+        if (dom.loadingMessage) {
+            dom.loadingMessage.textContent = 'Optimizing layout...';
+        }
+        dom.loading.classList.remove('hidden');
+    }
+
     elk.layout(elkGraph).then((result) => {
         if (!result || !result.children) return;
         if (state.elkLayoutToken !== token) return;
@@ -174,8 +182,14 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
             state.graph.stopBatch('elk-layout');
         }
         syncPaperToContent({ resetView: false, normalizeOnScroll: false });
+        if (dom && dom.loading) {
+            dom.loading.classList.add('hidden');
+        }
     }).catch((error) => {
         console.warn('ELK layout failed', error);
+        if (dom && dom.loading) {
+            dom.loading.classList.add('hidden');
+        }
     });
 }
 

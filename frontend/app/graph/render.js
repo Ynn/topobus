@@ -118,7 +118,7 @@ export function renderGraph(projectData, viewType) {
     }
     state.graph.on('change:position', (cell, pos, opt) => {
         if (opt && opt.skipParentResize) return;
-        if (state.currentView === 'group') {
+        if (viewType === 'group') {
             scheduleLinkAlign(cell);
         }
         scheduleMinimap();
@@ -126,11 +126,11 @@ export function renderGraph(projectData, viewType) {
     state.graph.on('change:size', () => scheduleMinimap());
     state.graph.on('add', () => scheduleMinimap());
     state.paper.on('element:pointerup', () => {
-        if (state.currentView === 'group') {
+        if (viewType === 'group') {
             alignGroupLinks();
             return;
         }
-        if (state.currentView === 'topology' || state.currentView === 'composite' || state.currentView === 'building') {
+        if (viewType === 'topology' || viewType === 'composite' || viewType === 'building') {
             normalizeContainerLayout();
         }
     });
@@ -188,7 +188,8 @@ export function renderGraph(projectData, viewType) {
 
     const links = graphData.edges.map(edge => createLinkElement(edge));
     elements.forEach(element => element.set('z', zForElement(element.get('kind'), viewType)));
-    links.forEach(link => link.set('z', -1));
+    const linkZ = viewType === 'group' ? 5 : -1;
+    links.forEach(link => link.set('z', linkZ));
 
     if (state.graph.resetCells) {
         state.graph.resetCells(links.concat(elements));

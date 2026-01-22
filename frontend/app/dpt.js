@@ -35,6 +35,16 @@ export function formatDatapointType(raw) {
     return formatDptInfo(info);
 }
 
+export function resolveDatapointInfo(raw) {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) return null;
+    const catalog = state.dptCatalog;
+    if (!catalog || !catalog.byId || catalog.byId.size === 0) {
+        return null;
+    }
+    return resolveDptInfo(trimmed, catalog);
+}
+
 function emptyCatalog() {
     return { byId: new Map(), byName: new Map() };
 }

@@ -6,15 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>TopoBus</title>
     <meta name="description" content="KNX topology explorer for .knxproj files.">
-    <meta name="theme-color" content="#0f766e">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="TopoBus">
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" href="topobus-logo.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="topobus-icon-180.png">
+    <meta name="theme-color" content="#2563eb">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="classic.css">
     <link rel="stylesheet" href="styles.css">
-    <!-- JointJS dependencies (vendored for offline use) -->
+    
+    <!-- JointJS dependencies -->
     <script src="vendor/jquery.min.js"></script>
     <script src="vendor/lodash.min.js"></script>
     <script src="vendor/backbone-min.js"></script>
@@ -25,129 +23,152 @@
 </head>
 
 <body>
-    <div id="app">
-        <header>
-            <div class="header-left">
-                <h1 class="brand">
-                    <img src="topobus-logo.svg" alt="TopoBus logo" class="brand-logo">
-                    <span>TopoBus</span>
-                </h1>
-                <div class="header-actions">
-                    <button id="filters-toggle" class="toggle-button" type="button" aria-expanded="false"
-                        aria-controls="controls-secondary">
-                        Filters
-                    </button>
-                    <button id="panel-toggle" class="toggle-button" type="button" aria-expanded="false"
-                        aria-controls="info-panel">
-                        Details
-                    </button>
+    <!-- Overlay for Upload (Drag & Drop) -->
+    <div id="upload-zone" class="upload-zone hidden">
+        <div class="upload-content">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <h2>Drop your .knxproj file</h2>
+            <p>or <label for="file-input" class="file-label">browse your computer</label></p>
+            <input type="file" id="file-input" accept=".knxproj" style="display: none;">
+            <div class="password-row hidden" id="password-row">
+                <label for="password-input">Project password (optional)</label>
+                <div class="password-actions">
+                    <input type="password" id="password-input" placeholder="Leave blank if none">
+                    <button type="button" id="password-submit">Retry</button>
                 </div>
+                <div class="password-hint" id="password-hint"></div>
             </div>
-            <div class="controls">
-                <div class="controls-primary">
-                    <div class="search-box">
-                        <input type="text" id="search-input" placeholder="Search a node..." aria-label="Search"
-                            autocomplete="off">
-                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="11" cy="11" r="8"></circle>
-                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                        </svg>
-                    </div>
-                    <div class="filter-group">
-                        <label for="view-selector">Graph Type</label>
-                        <select id="view-selector">
-                            <option value="group">Group Address View</option>
-                            <option value="topology">Physical Topology</option>
-                            <option value="composite">Group Hierarchy</option>
-                            <option value="building">Building View</option>
-                        </select>
-                    </div>
-                    <div class="zoom-group">
-                        <button id="zoom-out-btn" aria-label="Zoom out">-</button>
-                        <button id="zoom-in-btn" aria-label="Zoom in">+</button>
-                    </div>
-                    <button id="fit-btn">Fit View</button>
-                    <button id="relayout-btn">Re-layout</button>
-                </div>
-                <div class="controls-secondary" id="controls-secondary">
-                    <div class="filter-group">
-                        <label for="area-filter">Area</label>
-                        <select id="area-filter" aria-label="Filter by area"></select>
-                    </div>
-                    <div class="filter-group">
-                        <label for="line-filter">Line</label>
-                        <select id="line-filter" aria-label="Filter by line"></select>
-                    </div>
-                    <div class="filter-group">
-                        <label for="main-group-filter">Group</label>
-                        <select id="main-group-filter" aria-label="Filter by group"></select>
-                    </div>
-                    <div class="filter-group export-group">
-                        <label for="export-select">Export</label>
-                        <select id="export-select" aria-label="Export">
-                            <option value="">Export...</option>
-                            <option value="svg">Export SVG</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-        </header>
+        </div>
+    </div>
 
-        <div id="main-content">
-            <!-- Upload zone -->
-            <div id="upload-zone" class="upload-zone">
-                <div class="upload-content">
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="17 8 12 3 7 8"></polyline>
-                        <line x1="12" y1="3" x2="12" y2="15"></line>
-                    </svg>
-                    <h2>Drop your .knxproj file</h2>
-                    <p>or <label for="file-input" class="file-label">browse your computer</label></p>
-                    <input type="file" id="file-input" accept=".knxproj" style="display: none;">
-                    <div class="password-row hidden" id="password-row">
-                        <label for="password-input">Project password (optional)</label>
-                        <div class="password-actions">
-                            <input type="password" id="password-input" placeholder="Leave blank if none">
-                            <button type="button" id="password-submit">Retry</button>
-                        </div>
-                        <div class="password-hint" id="password-hint"></div>
+    <!-- Loading Indicator -->
+    <div id="loading" class="hidden" style="position: fixed; inset: 0; background: rgba(255,255,255,0.8); z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <div class="spinner"></div>
+        <p id="loading-message">Loading project...</p>
+    </div>
+
+    <div class="window" id="app-window">
+        <!-- Title Bar -->
+        <div class="title-bar">
+            <div class="title-left">
+                <span class="app-logo">TopoBus</span>
+                <span class="title-text" id="project-title">No Project Loaded</span>
+            </div>
+            <div class="window-controls">
+                <!-- Add controls if needed -->
+            </div>
+        </div>
+
+        <!-- Top Tabs Bar (Views) -->
+        <div class="tabs-bar">
+            <div id="view-tabs" class="tab-container" style="display: flex;">
+                <div class="tab" id="btn-open-project">📂 Open</div>
+                <div class="tab active" data-view-type="group">🏠 Group Addresses</div>
+                <div class="tab" data-view-type="topology">🌿 Topology</div>
+                <div class="tab" data-view-type="buildings">🏢 Buildings</div>
+                <div class="tab" data-view-type="devices">🔌 Devices</div>
+            </div>
+            <div class="search-container" style="margin-left: auto; margin-right: 16px;">
+                <input type="text" id="search-input" class="search-input" placeholder="Search... (Ctrl+F)" autocomplete="off">
+                <button class="search-clear">×</button>
+            </div>
+        </div>
+
+        <!-- Main Layout -->
+        <div class="main-layout">
+            <!-- Left Sidebar -->
+            <div class="sidebar" id="left-sidebar">
+                <div class="sidebar-header" id="sidebar-title">
+                    <span id="sidebar-title-text">Explorer</span>
+                    <div class="sidebar-actions">
+                        <button class="icon-btn" id="btn-expand-all" title="Expand all">▾</button>
+                        <button class="icon-btn" id="btn-collapse-all" title="Collapse all">▸</button>
+                        <button class="panel-toggle-btn" id="toggle-sidebar-btn">◀</button>
+                    </div>
+                </div>
+                <div class="tree" id="sidebar-tree">
+                    <!-- Tree content will be injected here -->
+                    <div style="padding: 20px; text-align: center; color: var(--text-muted);">
+                        No project loaded.
                     </div>
                 </div>
             </div>
+            <div class="resizer" id="left-resizer"></div>
 
-            <!-- Loading indicator -->
-            <div id="loading" class="hidden">
-                <div class="spinner"></div>
-                <p id="loading-message">Loading project...</p>
-            </div>
-
-            <!-- Visualization area -->
-            <div id="visualization" class="hidden">
-                <div id="paper-container">
-                    <div id="paper-scroll">
-                        <div id="paper"></div>
-                    </div>
-                    <div id="minimap-wrap">
-                        <div class="minimap-label">Minimap</div>
-                        <canvas id="minimap"></canvas>
+            <!-- Content Area -->
+            <div class="content-area">
+                <div class="content-tabs" id="center-tabs">
+                    <div class="content-tab active" data-tab="table">📋 Table View</div>
+                    <div class="content-tab" data-tab="graph">🕸️ Graph View</div>
+                    <div class="graph-mode" id="graph-mode" style="margin-left: auto; display: none;">
+                        <button class="graph-mode-btn active" data-mode="flat">Graph</button>
+                        <button class="graph-mode-btn" data-mode="hierarchy">Hierarchy</button>
                     </div>
                 </div>
-                <div id="info-panel">
-                    <div id="resize-handle"></div>
-                    <h3 id="project-name">TopoBus Project</h3>
-                    <div id="stats"></div>
-                    <div id="details">
-                        <h4>Selection</h4>
-                        <div id="details-content" class="details-content">
-                            Click a node to see details.
+                
+                <div id="view-container" style="flex: 1; position: relative; overflow: hidden;">
+                    <!-- Table View -->
+                    <div id="table-view" class="table-container" style="height: 100%; overflow: auto;">
+                        <table id="main-table">
+                            <thead id="table-head">
+                                <!-- Dynamic headers -->
+                            </thead>
+                            <tbody id="table-body">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                        <div id="empty-table-state" style="padding: 40px; text-align: center; color: var(--text-muted); display: none;">
+                            Select an item in the sidebar to view details.
                         </div>
                     </div>
+
+                    <!-- Graph View (Topobus Original) -->
+                    <div id="graph-view" style="display: none; height: 100%; width: 100%; position: relative;">
+                         <div class="graph-toolbar" id="graph-toolbar">
+                            <button class="toolbar-btn" id="btn-fit-view">🔍 Fit</button>
+                            <button class="toolbar-btn" id="btn-relayout">🔄 Layout</button>
+                            <button class="toolbar-btn" id="btn-graph-fullscreen">⛶ Full Screen</button>
+                        </div>
+                         <div id="paper-container" style="width: 100%; height: 100%; overflow: hidden;">
+                            <div id="paper-scroll" style="width: 100%; height: 100%; overflow: hidden;">
+                                <div id="paper"></div>
+                            </div>
+                            <div id="minimap-wrap">
+                                <div class="minimap-label">Minimap</div>
+                                <canvas id="minimap"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="resizer" id="right-resizer"></div>
+
+            <!-- Properties Sidebar (Right) -->
+            <div class="properties-sidebar" id="right-sidebar">
+                <div class="properties-header">
+                    <span>Info</span>
+                    <button class="panel-toggle-btn" id="toggle-props-btn">▶</button>
+                </div>
+                <div class="properties-tabs">
+                    <div class="prop-tab active">
+                        <span class="icon">ℹ️</span>
+                        <span>Info</span>
+                    </div>
+                </div>
+                <div class="properties-content" id="properties-panel">
+                    <div class="empty-state">Select an item to view properties.</div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Floating Reopen Buttons -->
+    <button class="panel-reopen-btn left" id="sidebar-reopen" style="display: none;" title="Show Sidebar">▶</button>
+    <button class="panel-reopen-btn right" id="properties-reopen" style="display: none;" title="Show Properties">◀</button>
 
     <script type="module" src="app.js"></script>
 </body>

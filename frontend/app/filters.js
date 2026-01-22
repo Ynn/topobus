@@ -6,6 +6,7 @@ const ALL_VALUE = 'all';
 
 export function setupFilterControls() {
     const dom = getDom();
+    // Safety check - if filter elements don't exist in new layout yet, skip
     if (!dom || !dom.areaFilter || !dom.lineFilter || !dom.mainGroupFilter) return;
 
     dom.areaFilter.addEventListener('change', (event) => {
@@ -28,11 +29,18 @@ export function setupFilterControls() {
 export function updateFilterOptions(project) {
     if (!project) return;
     const dom = getDom();
-    if (!dom || !dom.areaFilter || !dom.lineFilter || !dom.mainGroupFilter) return;
+    // Safety check
+    if (!dom || !dom.areaFilter || !dom.lineFilter || !dom.mainGroupFilter) {
+        // If elements are missing (new layout), we just accept it.
+        // We might want to inject them into the toolbar dynamically or re-add them to index.html later.
+        return;
+    }
 
     state.filters.area = ALL_VALUE;
     state.filters.line = ALL_VALUE;
     state.filters.mainGroup = ALL_VALUE;
+    state.filters.groupAddress = ALL_VALUE;
+    state.filters.buildingSpace = ALL_VALUE;
 
     const areas = buildAreaOptions(project);
     const linesByArea = buildLineOptions(project);
@@ -52,15 +60,33 @@ export function updateFilterOptions(project) {
 
 export function applyFiltersAndRender() {
     if (!state.currentProject) return;
+    const dom = getDom();
+    const graphVisible = dom && dom.graphView && dom.graphView.style.display !== 'none';
+    if (!graphVisible) return;
     const filtered = filterProject(state.currentProject, state.filters);
     state.filteredProject = filtered;
-    renderGraph(filtered, state.currentView);
+    const viewType = resolveGraphViewType(state.currentView);
+    const nodeCount = estimateGraphNodeCount(filtered, viewType);
+    const showLoading = nodeCount > 800 && dom && dom.loading;
+    if (showLoading && dom.loadingMessage) {
+        dom.loadingMessage.textContent = 'Rendering graph...';
+    }
+    if (showLoading) {
+        dom.loading.classList.remove('hidden');
+    }
+    requestAnimationFrame(() => {
+        renderGraph(filtered, viewType);
+        if (showLoading && dom.loading) {
+            dom.loading.classList.add('hidden');
+        }
+    });
 }
 
 export function refreshFilterControls() {
     const dom = getDom();
     if (!dom || !dom.mainGroupFilter) return;
-    dom.mainGroupFilter.disabled = state.currentView === 'topology' || state.currentView === 'building';
+    const graphView = resolveGraphViewType(state.currentView);
+    dom.mainGroupFilter.disabled = graphView === 'topology' || graphView === 'building';
 }
 
 function updateLineOptions() {
@@ -184,11 +210,13 @@ function filterProject(project, filters) {
     const areaFilter = filters.area || ALL_VALUE;
     const lineFilter = parseLineFilter(filters.line);
     const mainFilter = parseGroupFilter(filters.mainGroup);
+    const gaFilter = parseGroupAddressFilter(filters.groupAddress);
+    const buildingFilter = String(filters.buildingSpace || ALL_VALUE);
 
     const filteredTopology = filterTopologyGraph(project.topology_graph, areaFilter, lineFilter);
-    const filteredGroup = filterGroupGraph(project.group_address_graph, areaFilter, lineFilter, mainFilter);
+    const filteredGroup = filterGroupGraph(project.group_address_graph, areaFilter, lineFilter, mainFilter, gaFilter);
     const filteredDevices = filterDevices(project.devices, areaFilter, lineFilter);
-    const filteredLocations = filterLocations(project.locations, filteredDevices, areaFilter, lineFilter);
+    const filteredLocations = filterLocations(project.locations, filteredDevices, areaFilter, lineFilter, buildingFilter);
 
     return {
         ...project,
@@ -224,8 +252,13 @@ function normalizeDevicePart(value) {
     return trimmed;
 }
 
-function filterLocations(locations, devices, areaFilter, lineFilter) {
+function filterLocations(locations, devices, areaFilter, lineFilter, buildingFilter) {
     if (!Array.isArray(locations)) return [];
+    if (buildingFilter && buildingFilter !== ALL_VALUE) {
+        const subtree = findBuildingSubtree(locations, buildingFilter);
+        if (!subtree) return [];
+        locations = [subtree];
+    }
     if (areaFilter === ALL_VALUE && !lineFilter) return locations;
     const allowed = new Set(
         Array.isArray(devices) ? devices.map((device) => device.individual_address).filter(Boolean) : []
@@ -300,9 +333,9 @@ function filterTopologyGraph(graph, areaFilter, lineFilter) {
     return { ...graph, nodes, edges };
 }
 
-function filterGroupGraph(graph, areaFilter, lineFilter, mainFilter) {
+function filterGroupGraph(graph, areaFilter, lineFilter, mainFilter, gaFilter) {
     if (!graph || !graph.nodes) return graph;
-    if (areaFilter === ALL_VALUE && !lineFilter && mainFilter.type === 'all') return graph;
+    if (areaFilter === ALL_VALUE && !lineFilter && mainFilter.type === 'all' && gaFilter.type === 'all') return graph;
 
     const deviceNodes = graph.nodes.filter((node) => node.kind === 'device');
     const objectNodes = graph.nodes.filter((node) => node.kind === 'groupobject');
@@ -324,6 +357,7 @@ function filterGroupGraph(graph, areaFilter, lineFilter, mainFilter) {
         if (!parent || !deviceAllowed.has(parent)) return;
         const address = node.properties && node.properties.group_address ? node.properties.group_address : '';
         if (!matchesGroupFilter(address, mainFilter)) return;
+        if (!matchesGroupAddressFilter(address, gaFilter)) return;
         allowedObjects.add(node.id);
         allowedDevices.add(parent);
         if (address) {
@@ -337,6 +371,7 @@ function filterGroupGraph(graph, areaFilter, lineFilter, mainFilter) {
         if (!address) return;
         if (!allowedGroupAddresses.has(address)) return;
         if (!matchesGroupFilter(address, mainFilter)) return;
+        if (!matchesGroupAddressFilter(address, gaFilter)) return;
         allowedGaIds.add(node.id);
     });
 
@@ -403,6 +438,17 @@ function matchesGroupFilter(address, filter) {
     return true;
 }
 
+function parseGroupAddressFilter(value) {
+    const cleaned = String(value || '').trim();
+    if (!cleaned || cleaned === ALL_VALUE) return { type: 'all' };
+    return { type: 'address', address: cleaned };
+}
+
+function matchesGroupAddressFilter(address, filter) {
+    if (!filter || filter.type === 'all') return true;
+    return String(address || '') === filter.address;
+}
+
 function sortNumericOptions(a, b) {
     const aVal = parseInt(a.value, 10);
     const bVal = parseInt(b.value, 10);
@@ -446,4 +492,44 @@ function sortNumericGroupOptions(a, b) {
         return aMidNum - bMidNum;
     }
     return a.label.localeCompare(b.label);
+}
+
+function resolveGraphViewType(viewType) {
+    if (viewType === 'devices') return 'topology';
+    if (viewType === 'buildings') return 'building';
+    if (viewType === 'group') {
+        return state.viewPreferences.groupGraph === 'hierarchy' ? 'composite' : 'group';
+    }
+    return viewType;
+}
+
+function estimateGraphNodeCount(project, viewType) {
+    if (!project) return 0;
+    if (viewType === 'building') {
+        const locations = Array.isArray(project.locations) ? project.locations : [];
+        let spaces = 0;
+        const walk = (nodes) => {
+            nodes.forEach((node) => {
+                spaces += 1;
+                walk(Array.isArray(node.children) ? node.children : []);
+            });
+        };
+        walk(locations);
+        const devices = Array.isArray(project.devices) ? project.devices.length : 0;
+        return spaces + devices;
+    }
+    const graph = viewType === 'topology'
+        ? project.topology_graph
+        : project.group_address_graph;
+    return graph && Array.isArray(graph.nodes) ? graph.nodes.length : 0;
+}
+
+function findBuildingSubtree(spaces, targetId) {
+    for (const space of spaces) {
+        if (space && String(space.id || '') === targetId) return space;
+        const children = Array.isArray(space.children) ? space.children : [];
+        const found = findBuildingSubtree(children, targetId);
+        if (found) return found;
+    }
+    return null;
 }

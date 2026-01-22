@@ -1,12 +1,45 @@
 import { state } from './state.js';
 import { getDom } from './dom.js';
-import { refreshViewControls } from './controls.js';
+// import { refreshViewControls } from './controls.js'; // Deprecated
 import { applyFiltersAndRender, updateFilterOptions } from './filters.js';
 import { parseKnxprojFile } from './parser.js';
+import { updateClassicView } from './classic_view.js';
 
 export function setupUploadHandlers() {
     const dom = getDom();
     if (!dom || !dom.uploadZone || !dom.fileInput) return;
+
+    let dragDepth = 0;
+    const hasFiles = (event) => {
+        const types = event.dataTransfer ? Array.from(event.dataTransfer.types || []) : [];
+        return types.includes('Files');
+    };
+    const showUploadZone = () => {
+        dom.uploadZone.classList.remove('hidden');
+    };
+    const hideUploadZone = () => {
+        dom.uploadZone.classList.add('hidden');
+        dom.uploadZone.classList.remove('dragover');
+    };
+
+    document.addEventListener('dragenter', (e) => {
+        if (!hasFiles(e)) return;
+        dragDepth += 1;
+        showUploadZone();
+    });
+
+    document.addEventListener('dragleave', (e) => {
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+            hideUploadZone();
+        }
+    });
+
+    document.addEventListener('dragover', (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        showUploadZone();
+    });
 
     dom.uploadZone.addEventListener('dragover', (e) => {
         e.preventDefault();
@@ -20,6 +53,7 @@ export function setupUploadHandlers() {
     dom.uploadZone.addEventListener('drop', (e) => {
         e.preventDefault();
         dom.uploadZone.classList.remove('dragover');
+        dragDepth = 0;
         const file = e.dataTransfer.files[0];
         if (file && file.name.endsWith('.knxproj')) {
             hidePasswordPrompt();
@@ -62,14 +96,17 @@ async function uploadFile(file) {
     state.lastFile = file;
     const dom = getDom();
     if (!dom) return;
-    dom.uploadZone.classList.add('hidden');
-    if (dom.loadingMessage) {
-        dom.loadingMessage.textContent = 'Loading project...';
-    }
-    dom.loading.classList.remove('hidden');
+
+    // UI Loading State
+    if (dom.uploadZone) dom.uploadZone.classList.add('hidden');
+    if (dom.loadingMessage) dom.loadingMessage.textContent = 'Loading project...';
+    if (dom.loading) dom.loading.classList.remove('hidden');
 
     try {
+        // Reset password input if not needed
         const password = dom.passwordInput ? dom.passwordInput.value.trim() : '';
+
+        // Parsing
         const data = await parseKnxprojFile(file, password || null);
         state.currentProject = data;
         state.groupAddressIndex = buildGroupAddressIndex(data);
@@ -77,25 +114,22 @@ async function uploadFile(file) {
         updateFilterOptions(data);
 
         hidePasswordPrompt();
-        dom.loading.classList.add('hidden');
-        dom.visualization.classList.remove('hidden');
 
-        if (dom.projectName) {
-            dom.projectName.textContent = data.project_name;
-        }
-        const deviceCount = data.group_address_graph.nodes.filter(n => n.kind === 'device').length;
-        const gaCount = data.group_address_graph.nodes.filter(n => n.kind === 'groupaddress').length;
-        const goCount = data.group_address_graph.nodes.filter(n => n.kind === 'groupobject').length;
-        if (dom.stats) {
-            dom.stats.innerHTML = `
-            <p><strong>Devices:</strong> ${deviceCount}</p>
-            <p><strong>Group Objects:</strong> ${goCount}</p>
-            <p><strong>Group Addresses:</strong> ${gaCount}</p>
-        `;
+        if (dom.loading) dom.loading.classList.add('hidden');
+
+        // Update Project Stats / Title in Classic View
+        if (dom.projectTitle) {
+            dom.projectTitle.textContent = data.project_name || file.name;
         }
 
-        applyFiltersAndRender();
-        refreshViewControls();
+        // Initialize Views
+        updateClassicView();
+
+        // Render graph only if the graph view is visible
+        if (dom.graphView && dom.graphView.style.display !== 'none') {
+            applyFiltersAndRender();
+        }
+
     } catch (error) {
         handleUploadError(error.message || String(error));
     }

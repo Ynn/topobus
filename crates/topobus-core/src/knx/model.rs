@@ -131,6 +131,15 @@ pub struct GroupLink {
     pub number: Option<u32>,
     /// Communication object description
     pub description: Option<String>,
+    /// Communication object security (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<String>,
+    /// Building function (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub building_function: Option<String>,
+    /// Building part (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub building_part: Option<String>,
     /// Communication object flags
     pub flags: Option<ObjectFlags>,
 }

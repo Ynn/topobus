@@ -4,6 +4,7 @@ export const state = {
     currentNodeIndex: null,
     groupAddressIndex: null,
     deviceIndex: null,
+    topologyIndex: null,
     graph: null,
     paper: null,
     currentView: 'group',
@@ -30,7 +31,9 @@ export const state = {
     filters: {
         area: 'all',
         line: 'all',
-        mainGroup: 'all'
+        mainGroup: 'all',
+        groupAddress: 'all',
+        buildingSpace: 'all'
     },
     filterOptions: {
         areas: [],
@@ -42,6 +45,7 @@ export const state = {
     interactiveFunc: null,
     viewPreferences: {
         linkStyle: 'auto',
-        density: 'comfortable'
+        density: 'comfortable',
+        groupGraph: 'flat'
     }
 };
