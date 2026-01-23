@@ -67,7 +67,7 @@ export function applyFiltersAndRender() {
     state.filteredProject = filtered;
     const viewType = resolveGraphViewType(state.currentView);
     const nodeCount = estimateGraphNodeCount(filtered, viewType);
-    const showLoading = nodeCount > 800 && dom && dom.loading;
+    const showLoading = nodeCount > 300 && dom && dom.loading;
     if (showLoading && dom.loadingMessage) {
         dom.loadingMessage.textContent = 'Rendering graph...';
     }
@@ -75,9 +75,12 @@ export function applyFiltersAndRender() {
         dom.loading.classList.remove('hidden');
     }
     requestAnimationFrame(() => {
-        renderGraph(filtered, viewType);
-        if (showLoading && dom.loading) {
-            dom.loading.classList.add('hidden');
+        try {
+            renderGraph(filtered, viewType);
+        } finally {
+            if (showLoading && dom && dom.loading && !state.elkLayoutActive) {
+                dom.loading.classList.add('hidden');
+            }
         }
     });
 }

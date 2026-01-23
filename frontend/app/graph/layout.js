@@ -149,6 +149,7 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
             dom.loadingMessage.textContent = 'Optimizing layout...';
         }
         dom.loading.classList.remove('hidden');
+        state.elkLayoutActive = true;
     }
 
     elk.layout(elkGraph).then((result) => {
@@ -185,11 +186,13 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
         if (dom && dom.loading) {
             dom.loading.classList.add('hidden');
         }
+        state.elkLayoutActive = false;
     }).catch((error) => {
         console.warn('ELK layout failed', error);
         if (dom && dom.loading) {
             dom.loading.classList.add('hidden');
         }
+        state.elkLayoutActive = false;
     });
 }
 

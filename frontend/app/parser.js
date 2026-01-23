@@ -14,7 +14,12 @@ async function tryParseWithWasm(file, password) {
 
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
-    return parseKnxprojBytes(bytes, password);
+    try {
+        return parseKnxprojBytes(bytes, password);
+    } catch (error) {
+        console.warn('WASM parse failed, falling back to server.', error);
+        return null;
+    }
 }
 
 async function parseWithServer(file, password) {

@@ -27,6 +27,7 @@ export const state = {
     linkAlignFrame: null,
     pendingLinkAlign: null,
     elkLayoutToken: 0,
+    elkLayoutActive: false,
     filteredProject: null,
     filters: {
         area: 'all',

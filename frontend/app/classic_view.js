@@ -28,7 +28,7 @@ const viewConstants = {
 
 const tableLayouts = {
     groupAddresses: ['', '', 'Address', 'Name', 'Sub', 'Description', 'Data Type', 'Length', 'Associations'],
-    groupObjects: ['', '', 'Number', 'Object', 'Device', 'Function', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'C', 'R', 'W', 'T', 'U', 'I'],
+    groupObjects: ['', '', 'Number', 'Object', 'Device Address', 'Device', 'Function', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'C', 'R', 'W', 'T', 'U', 'I'],
     topologyAreas: ['', '', 'Area', 'Name', 'Description'],
     topologyLines: ['', '', 'Line', 'Name', 'Description', 'Medium'],
     topologySegments: ['', '', 'Segment', 'Name', 'Medium', 'Domain'],
@@ -52,6 +52,11 @@ const TREE_INDENT_BASE = 14;
 const TREE_INDENT_STEP = 20;
 let buildingLookupCache = null;
 let buildingLookupProject = null;
+let tableColumnLabels = [];
+let tableColumnKeys = [];
+let tableColumnSignature = '';
+let tableColumnWidths = new Map();
+let lastTableColumns = [];
 
 function nextTreeId() {
     treeIdCounter += 1;
@@ -144,6 +149,12 @@ function setupSelectionLinking() {
     selectionLinked = true;
     registerSelectionListener((cell) => {
         syncTableSelectionFromGraph(cell);
+    });
+
+    document.addEventListener('fullscreenchange', () => {
+        const enabled = Boolean(document.fullscreenElement);
+        document.body.classList.toggle('graph-fullscreen', enabled);
+        updateFullscreenButton(enabled);
     });
 }
 
@@ -1478,6 +1489,7 @@ function buildGroupAddressObjectRows(address) {
             data: {
                 number: props.number != null ? String(props.number) : '',
                 object: props.object_name || props.object_name_raw || '',
+                deviceAddress: deviceAddress || '',
                 device: deviceLabel || (parent ? parent.label : ''),
                 func: props.object_function_text || '',
                 desc: props.description || props.object_text || '',
@@ -1501,21 +1513,48 @@ function extractGroupSub(address) {
     return parts.sub || '';
 }
 
-function renderTableHeader(columns) {
+function renderTableHeader(columns, sampleRow, keepOrder = false) {
     const dom = getDom();
+    if (!dom || !dom.tableHead) return;
+    lastTableColumns = columns;
+    const signature = columns.join('|');
+    if (signature !== tableColumnSignature) {
+        tableColumnSignature = signature;
+        tableColumnWidths = new Map();
+        tableColumnKeys = [];
+    }
+    if (!keepOrder || tableColumnLabels.length !== columns.length - 2) {
+        tableColumnLabels = columns.slice(2);
+    }
+    if (sampleRow && sampleRow.data) {
+        tableColumnKeys = Object.keys(sampleRow.data);
+    }
     tableSortState = { index: null, direction: 'asc' };
-    dom.tableHead.innerHTML = `<tr>${columns.map((col, idx) => {
-        const sortable = idx > 1;
-        const cls = sortable ? 'sortable' : '';
-        const data = sortable ? ` data-sort-index="${idx - 2}"` : '';
-        return `<th class="${cls}"${data}>${col}</th>`;
-    }).join('')}</tr>`;
+
+    const headers = tableColumnLabels.map((label, idx) => {
+        const cls = 'sortable';
+        const handle = `<span class="col-resizer" data-col-index="${idx}"></span>`;
+        return `<th class="${cls}" data-sort-index="${idx}" draggable="true">${label}${handle}</th>`;
+    });
+    const headCells = [
+        '<th></th>',
+        '<th></th>',
+        ...headers
+    ];
+    dom.tableHead.innerHTML = `<tr>${headCells.join('')}</tr>`;
+    applyColumnWidths();
 }
 
 function renderTableBody(data) {
     const dom = getDom();
     if (!dom || !dom.tableBody) return;
     const rows = Array.isArray(data) ? data : [];
+    if (rows.length && (!tableColumnKeys.length || tableColumnKeys.length !== Object.keys(rows[0].data || {}).length)) {
+        tableColumnKeys = Object.keys(rows[0].data || {});
+        if (lastTableColumns.length) {
+            renderTableHeader(lastTableColumns, rows[0]);
+        }
+    }
     tableSourceData = rows;
     selectedTableRow = null;
     const filtered = applyTableSearch(rows);
@@ -1530,11 +1569,14 @@ function renderTableBody(data) {
                 tableRowByGraphId.set(graphId, row);
             }
             const isSelected = state.selectedId && row.id === state.selectedId;
+            const cells = tableColumnKeys.length
+                ? tableColumnKeys.map((key) => row.data[key])
+                : Object.values(row.data);
             return `
                 <tr data-id="${row.id}"${isSelected ? ' class="selected-row"' : ''}>
                      <td></td>
                      <td><span class="icon">${row.icon}</span></td>
-                     ${Object.values(row.data).map(val => `<td>${val == null ? '' : val}</td>`).join('')}
+                     ${cells.map(val => `<td>${val == null ? '' : val}</td>`).join('')}
                 </tr>
             `;
         }).join('');
@@ -1544,6 +1586,7 @@ function renderTableBody(data) {
                 selectedTableRow = row;
             }
         }
+        applyColumnWidths();
     };
 
     const loadingBusy = dom.loading && !dom.loading.classList.contains('hidden');
@@ -1584,6 +1627,10 @@ function applyTableSort(rows) {
 }
 
 function getTableValue(row, index) {
+    const key = tableColumnKeys[index];
+    if (key && row.data) {
+        return row.data[key] != null ? row.data[key] : '';
+    }
     const values = Object.values(row.data || {});
     return values[index] != null ? values[index] : '';
 }
@@ -1830,8 +1877,19 @@ function toggleSidebar() {
 function toggleGraphFullscreen() {
     const dom = getDom();
     const body = document.body;
-    const enabled = body.classList.toggle('graph-fullscreen');
-    updateFullscreenButton(enabled);
+    const enabled = !body.classList.contains('graph-fullscreen');
+    if (enabled) {
+        body.classList.add('graph-fullscreen');
+        if (dom && dom.app && dom.app.requestFullscreen) {
+            dom.app.requestFullscreen().catch(() => {});
+        }
+    } else {
+        body.classList.remove('graph-fullscreen');
+        if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+        }
+    }
+    updateFullscreenButton(enabled || Boolean(document.fullscreenElement));
     if (enabled && dom && dom.graphView && dom.graphView.style.display === 'none') {
         switchContentTab('graph');
     }
@@ -1917,6 +1975,7 @@ function initializeTableSorting() {
     if (!dom || !dom.tableHead) return;
 
     dom.tableHead.addEventListener('click', (e) => {
+        if (e.target.closest('.col-resizer')) return;
         const th = e.target.closest('th');
         if (!th || !th.dataset.sortIndex) return;
         const index = Number(th.dataset.sortIndex);
@@ -1936,4 +1995,99 @@ function initializeTableSorting() {
 
         renderTableBody(tableSourceData);
     });
+
+    dom.tableHead.addEventListener('mousedown', (e) => {
+        const handle = e.target.closest('.col-resizer');
+        if (!handle) return;
+        e.preventDefault();
+        const th = handle.closest('th');
+        if (!th) return;
+        const index = Number(handle.dataset.colIndex);
+        if (!Number.isFinite(index)) return;
+        const startX = e.clientX;
+        const startWidth = th.offsetWidth;
+        document.body.style.cursor = 'col-resize';
+
+        const onMove = (ev) => {
+            const next = Math.max(60, startWidth + (ev.clientX - startX));
+            setColumnWidth(index, next);
+        };
+        const onUp = () => {
+            document.body.style.cursor = '';
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+
+    dom.tableHead.addEventListener('dragstart', (e) => {
+        if (e.target.closest('.col-resizer')) return;
+        const th = e.target.closest('th');
+        if (!th || !th.dataset.sortIndex) return;
+        e.dataTransfer.setData('text/plain', th.dataset.sortIndex);
+        e.dataTransfer.effectAllowed = 'move';
+    });
+
+    dom.tableHead.addEventListener('dragover', (e) => {
+        const th = e.target.closest('th');
+        if (!th || !th.dataset.sortIndex) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    });
+
+    dom.tableHead.addEventListener('drop', (e) => {
+        const th = e.target.closest('th');
+        if (!th || !th.dataset.sortIndex) return;
+        e.preventDefault();
+        const from = Number(e.dataTransfer.getData('text/plain'));
+        const to = Number(th.dataset.sortIndex);
+        if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return;
+        reorderColumns(from, to);
+    });
+}
+
+function setColumnWidth(index, width) {
+    const dom = getDom();
+    if (!dom || !dom.tableHead) return;
+    tableColumnWidths.set(index, width);
+    applyColumnWidths();
+}
+
+function applyColumnWidths() {
+    const dom = getDom();
+    if (!dom || !dom.tableHead || !dom.tableBody) return;
+    tableColumnWidths.forEach((width, index) => {
+        const headCell = dom.tableHead.querySelector(`th[data-sort-index="${index}"]`);
+        if (headCell) headCell.style.width = `${width}px`;
+        const cells = dom.tableBody.querySelectorAll(`tr td:nth-child(${index + 3})`);
+        cells.forEach((cell) => {
+            cell.style.width = `${width}px`;
+            cell.style.maxWidth = `${width}px`;
+        });
+    });
+}
+
+function reorderColumns(from, to) {
+    if (from < 0 || to < 0) return;
+    if (!tableColumnKeys.length || !tableColumnLabels.length) return;
+    const key = tableColumnKeys.splice(from, 1)[0];
+    const label = tableColumnLabels.splice(from, 1)[0];
+    tableColumnKeys.splice(to, 0, key);
+    tableColumnLabels.splice(to, 0, label);
+    if (tableColumnWidths.size) {
+        const widthArr = [];
+        const total = tableColumnLabels.length;
+        for (let i = 0; i < total; i += 1) {
+            widthArr[i] = tableColumnWidths.get(i);
+        }
+        const moved = widthArr.splice(from, 1)[0];
+        widthArr.splice(to, 0, moved);
+        tableColumnWidths = new Map();
+        widthArr.forEach((width, idx) => {
+            if (width != null) tableColumnWidths.set(idx, width);
+        });
+    }
+    renderTableHeader(lastTableColumns, null, true);
+    renderTableBody(tableSourceData);
 }
