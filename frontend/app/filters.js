@@ -1,6 +1,9 @@
 import { state } from './state.js';
 import { getDom } from './dom.js';
 import { renderGraph } from './graph/render.js';
+import { startGraphLoading, stopGraphLoading } from './graph/loading.js';
+import { syncPaperToContent, updateZoomLOD } from './interactions.js';
+import { scheduleMinimap } from './minimap.js';
 
 const ALL_VALUE = 'all';
 
@@ -66,20 +69,36 @@ export function applyFiltersAndRender() {
     const filtered = filterProject(state.currentProject, state.filters);
     state.filteredProject = filtered;
     const viewType = resolveGraphViewType(state.currentView);
+    const renderKey = buildGraphRenderKey(viewType);
+    if (state.graph && state.lastGraphKey === renderKey && state.lastGraphViewType === viewType) {
+        syncPaperToContent({ resetView: false });
+        updateZoomLOD();
+        scheduleMinimap();
+        return;
+    }
+
     const nodeCount = estimateGraphNodeCount(filtered, viewType);
-    const showLoading = nodeCount > 300 && dom && dom.loading;
-    if (showLoading && dom.loadingMessage) {
-        dom.loadingMessage.textContent = 'Rendering graph...';
-    }
+    const edgeCount = estimateGraphEdgeCount(filtered, viewType);
+    const isWideGroup = viewType === 'group' && state.filters.groupAddress === ALL_VALUE;
+    const isWideComposite = viewType === 'composite';
+    const showLoading = Boolean(
+        dom && dom.loading &&
+        (nodeCount > 300 || edgeCount > 600 || (isWideGroup && nodeCount > 80) || (isWideComposite && nodeCount > 120))
+    );
     if (showLoading) {
-        dom.loading.classList.remove('hidden');
+        startGraphLoading('Rendering graph...');
+    } else {
+        stopGraphLoading();
     }
+
     requestAnimationFrame(() => {
         try {
             renderGraph(filtered, viewType);
+            state.lastGraphKey = renderKey;
+            state.lastGraphViewType = viewType;
         } finally {
-            if (showLoading && dom && dom.loading && !state.elkLayoutActive) {
-                dom.loading.classList.add('hidden');
+            if (showLoading) {
+                stopGraphLoading();
             }
         }
     });
@@ -525,6 +544,28 @@ function estimateGraphNodeCount(project, viewType) {
         ? project.topology_graph
         : project.group_address_graph;
     return graph && Array.isArray(graph.nodes) ? graph.nodes.length : 0;
+}
+
+function estimateGraphEdgeCount(project, viewType) {
+    if (!project) return 0;
+    if (viewType === 'building') return 0;
+    const graph = viewType === 'topology'
+        ? project.topology_graph
+        : project.group_address_graph;
+    return graph && Array.isArray(graph.edges) ? graph.edges.length : 0;
+}
+
+function buildGraphRenderKey(viewType) {
+    const filters = state.filters || {};
+    return [
+        viewType,
+        state.viewPreferences.groupGraph || 'flat',
+        filters.area || 'all',
+        filters.line || 'all',
+        filters.mainGroup || 'all',
+        filters.groupAddress || 'all',
+        filters.buildingSpace || 'all'
+    ].join('|');
 }
 
 function findBuildingSubtree(spaces, targetId) {

@@ -51,6 +51,17 @@ export function initShapes() {
                 fontWeight: 600,
                 fill: theme.ink,
                 fontFamily: theme.fontSans
+            },
+            summary: {
+                refX: '50%',
+                refY: '60%',
+                textAnchor: 'middle',
+                textVerticalAnchor: 'middle',
+                fontSize: 48,
+                fontWeight: 800,
+                fill: theme.ink,
+                fontFamily: theme.fontMono,
+                display: 'none'
             }
         }
     }, {
@@ -59,7 +70,8 @@ export function initShapes() {
             { tagName: 'rect', selector: 'header' },
             { tagName: 'rect', selector: 'headerMask' },
             { tagName: 'text', selector: 'address' },
-            { tagName: 'text', selector: 'name' }
+            { tagName: 'text', selector: 'name' },
+            { tagName: 'text', selector: 'summary' }
         ]
     });
 

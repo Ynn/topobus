@@ -1,5 +1,6 @@
 import { state } from '../state.js';
 import { getDom } from '../dom.js';
+import { startGraphLoading, stopGraphLoading } from './loading.js';
 import { getLayoutSettings, readTheme } from '../theme.js';
 import { syncPaperToContent } from '../interactions.js';
 import {
@@ -145,10 +146,7 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
 
     const dom = getDom();
     if (dom && dom.loading) {
-        if (dom.loadingMessage) {
-            dom.loadingMessage.textContent = 'Optimizing layout...';
-        }
-        dom.loading.classList.remove('hidden');
+        startGraphLoading('Optimizing layout...');
         state.elkLayoutActive = true;
     }
 
@@ -183,16 +181,12 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
             state.graph.stopBatch('elk-layout');
         }
         syncPaperToContent({ resetView: false, normalizeOnScroll: false });
-        if (dom && dom.loading) {
-            dom.loading.classList.add('hidden');
-        }
         state.elkLayoutActive = false;
+        stopGraphLoading();
     }).catch((error) => {
         console.warn('ELK layout failed', error);
-        if (dom && dom.loading) {
-            dom.loading.classList.add('hidden');
-        }
         state.elkLayoutActive = false;
+        stopGraphLoading();
     });
 }
 
@@ -228,19 +222,51 @@ function resolveDeviceId(node) {
 }
 
 function buildElkOptions(settings) {
-    const nodeGap = Math.max(40, Math.round(settings.columnGap * 0.5));
-    const layerGap = Math.max(80, Math.round(settings.columnGap));
+    const elk = state.elkSettings || {};
+    const algorithm = elk.algorithm || 'layered';
+
+    if (algorithm === 'stress') {
+        const stress = state.uiSettings?.stress || {};
+        return {
+            'elk.algorithm': 'stress',
+            'elk.stress.iterations': String(elk.iterations || elk.stressIterations || stress.iterations || 300),
+            'elk.stress.epsilon': String(elk.epsilon || stress.epsilon || 0.001),
+            'elk.stress.desiredEdgeLength': String(elk.desiredEdgeLength || stress.desiredEdgeLength || 100),
+            'elk.spacing.nodeNode': String(elk.spacingNodeNode || 80)
+        };
+    }
+
+    const nodeGap = Math.max(30, Number(elk.spacingNodeNode || 0) || Math.round(settings.columnGap * 0.8));
+    const layerGap = Math.max(60, Number(elk.spacingLayer || 0) || Math.round(settings.columnGap * 1.4));
+    const edgeNodeBetween = Math.max(10, Number(elk.spacingEdgeNodeBetweenLayers || 0) || Math.round(layerGap * 0.3));
+    const edgeEdgeBetween = Math.max(8, Number(elk.spacingEdgeEdgeBetweenLayers || 0) || 10);
+    const edgeNode = Math.max(8, Number(elk.spacingEdgeNode || 0) || Math.round(nodeGap * 0.4));
+    const edgeEdge = Math.max(6, Number(elk.spacingEdgeEdge || 0) || Math.round(nodeGap * 0.3));
+    const considerModelOrder = elk.considerModelOrder !== false;
+    const mergeEdges = elk.mergeEdges !== false;
+
     return {
         'elk.algorithm': 'layered',
-        'elk.direction': 'RIGHT',
-        'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+        'elk.direction': elk.direction || 'RIGHT',
+        'elk.edgeRouting': elk.edgeRouting || 'POLYLINE',
+        'elk.layered.layering.strategy': elk.layering || 'NETWORK_SIMPLEX',
+        'elk.layered.crossingMinimization.strategy': elk.crossingMinimization || 'LAYER_SWEEP',
+        'elk.layered.thoroughness': String(elk.thoroughness || 7),
         'elk.layered.crossingMinimization.greedySwitch.activationThreshold': '0',
         'elk.layered.crossingMinimization.greedySwitch.type': 'TWO_SIDED',
-        'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+        'elk.layered.nodePlacement.strategy': elk.nodePlacement || 'BRANDES_KOEPF',
+        'elk.layered.cycleBreaking.strategy': elk.cycleBreaking || 'GREEDY_MODEL_ORDER',
+        'elk.layered.considerModelOrder.strategy': considerModelOrder ? 'NODES_AND_EDGES' : 'NONE',
+        'elk.layered.mergeEdges': mergeEdges ? 'true' : 'false',
+        'elk.layered.edgeRouting.splines.mode': elk.splinesMode || 'CONSERVATIVE',
         'elk.separateConnectedComponents': 'true',
         'elk.layered.compaction.connectedComponents': 'true',
         'elk.spacing.nodeNode': String(nodeGap),
-        'elk.layered.spacing.nodeNodeBetweenLayers': String(layerGap)
+        'elk.layered.spacing.nodeNodeBetweenLayers': String(layerGap),
+        'elk.layered.spacing.edgeNodeBetweenLayers': String(edgeNodeBetween),
+        'elk.layered.spacing.edgeEdgeBetweenLayers': String(edgeEdgeBetween),
+        'elk.spacing.edgeNode': String(edgeNode),
+        'elk.spacing.edgeEdge': String(edgeEdge)
     };
 }
 

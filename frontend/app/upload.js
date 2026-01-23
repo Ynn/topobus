@@ -109,6 +109,10 @@ async function uploadFile(file) {
         // Parsing
         const data = await parseKnxprojFile(file, password || null);
         state.currentProject = data;
+        state.lastGraphKey = null;
+        state.lastGraphViewType = null;
+        state.graphLoadingActive = false;
+        state.groupSummaryMode = false;
         state.groupAddressIndex = buildGroupAddressIndex(data);
         state.deviceIndex = buildDeviceIndex(data);
         updateFilterOptions(data);

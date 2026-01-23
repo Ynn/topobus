@@ -9,6 +9,7 @@ import { updateLinkStyles, zForElement } from './styles.js';
 import { bindInteractions, fitContent, syncPaperToContent, updateZoomLOD } from '../interactions.js';
 import { clearSelection } from '../selection.js';
 import { scheduleMinimap, setMinimapEnabled } from '../minimap.js';
+import { startGraphLoading, stopGraphLoading } from './loading.js';
 
 const LARGE_GRAPH_THRESHOLD = 1200;
 
@@ -54,6 +55,10 @@ export function renderGraph(projectData, viewType) {
         cellNamespace: joint.shapes,
         search: joint.dia.SearchGraph ? { type: 'quadtree' } : undefined
     });
+    state.groupSummaryMode = false;
+    state.groupSummaryLinks = [];
+    state.hiddenGroupLinks = [];
+    state.hiddenGroupLinks = [];
 
     state.paper = new joint.dia.Paper({
         el: dom.paper,
@@ -152,6 +157,7 @@ export function renderGraph(projectData, viewType) {
             fitContent();
         }
         scheduleMinimap();
+        stopGraphLoading();
         return;
     }
     if (viewType === 'building') {
@@ -170,6 +176,7 @@ export function renderGraph(projectData, viewType) {
             fitContent();
         }
         scheduleMinimap();
+        stopGraphLoading();
         return;
     }
 
@@ -198,6 +205,10 @@ export function renderGraph(projectData, viewType) {
     }
 
     if (viewType === 'group') {
+        const deviceCount = nodesToRender.filter(node => node.kind === 'device').length;
+        if (deviceCount > 1 && typeof window !== 'undefined' && window.ELK) {
+            startGraphLoading('Optimizing layout...');
+        }
         layoutGroupView(nodesToRender, elementsById);
     } else {
         layoutTopologyView(nodesToRender, elementsById);
@@ -220,6 +231,7 @@ export function renderGraph(projectData, viewType) {
     }
     updateZoomLOD();
     scheduleMinimap();
+    stopGraphLoading();
 }
 
 function filterGroupViewNodes(nodes) {
@@ -294,7 +306,8 @@ export function createNodeElement(node) {
             kind: node.kind,
             attrs: {
                 address: { text: address },
-                name: { text: displayName }
+                name: { text: displayName },
+                summary: { text: '' }
             }
         });
         element.set('fullAddress', address);

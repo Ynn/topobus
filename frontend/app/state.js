@@ -28,6 +28,7 @@ export const state = {
     pendingLinkAlign: null,
     elkLayoutToken: 0,
     elkLayoutActive: false,
+    graphLoadingActive: false,
     filteredProject: null,
     filters: {
         area: 'all',
@@ -44,6 +45,15 @@ export const state = {
     isLargeGraph: false,
     minimapDisabled: false,
     interactiveFunc: null,
+    lastGraphKey: null,
+    lastGraphViewType: null,
+    groupSummaryMode: false,
+    groupSummaryLinks: [],
+    hiddenGroupLinks: [],
+    uiSettings: null,
+    elkSettings: null,
+    elkPreset: 'balanced',
+    themeName: 'latte',
     viewPreferences: {
         linkStyle: 'auto',
         density: 'comfortable',

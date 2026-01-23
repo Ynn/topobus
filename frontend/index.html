@@ -66,6 +66,7 @@
                 <div class="tab" data-view-type="devices">🔌 Devices</div>
             </div>
             <div class="search-container" style="margin-left: auto; margin-right: 16px;">
+                <button class="icon-btn settings-btn" id="settings-btn" title="Settings">⚙</button>
                 <input type="text" id="search-input" class="search-input" placeholder="Search... (Ctrl+F)" autocomplete="off">
                 <button class="search-clear">×</button>
             </div>
@@ -162,6 +163,161 @@
     <!-- Floating Reopen Buttons -->
     <button class="panel-reopen-btn left" id="sidebar-reopen" style="display: none;" title="Show Sidebar">▶</button>
     <button class="panel-reopen-btn right" id="properties-reopen" style="display: none;" title="Show Properties">◀</button>
+
+    <!-- Settings Panel -->
+    <div class="settings-overlay hidden" id="settings-overlay">
+        <div class="settings-panel">
+            <div class="settings-header">
+                <span>Settings</span>
+                <button class="icon-btn" id="settings-close">✕</button>
+            </div>
+            <div class="settings-body">
+                <div class="settings-section">
+                    <h3>Theme</h3>
+                    <label class="settings-label" for="settings-theme">Theme</label>
+                    <select id="settings-theme" class="settings-select">
+                        <option value="latte">Latte</option>
+                        <option value="mocha">Mocha</option>
+                    </select>
+                </div>
+                <div class="settings-section">
+                    <h3>Graph Layout</h3>
+                    <label class="settings-label" for="settings-elk-preset">Preset</label>
+                    <select id="settings-elk-preset" class="settings-select">
+                        <option value="fast">Fast</option>
+                        <option value="balanced">Balanced</option>
+                        <option value="quality">Quality</option>
+                        <option value="stress">Stress</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <div class="settings-grid">
+                        <div>
+                            <label class="settings-label" for="settings-elk-algorithm">Algorithm</label>
+                            <select id="settings-elk-algorithm" class="settings-select">
+                                <option value="layered">layered</option>
+                                <option value="stress">stress</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="settings-label" for="settings-elk-direction">Direction</label>
+                            <select id="settings-elk-direction" class="settings-select">
+                                <option value="RIGHT">RIGHT</option>
+                                <option value="DOWN">DOWN</option>
+                                <option value="LEFT">LEFT</option>
+                                <option value="UP">UP</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="settings-label" for="settings-elk-edge-routing">Edge Routing</label>
+                            <select id="settings-elk-edge-routing" class="settings-select">
+                                <option value="POLYLINE">POLYLINE</option>
+                                <option value="ORTHOGONAL">ORTHOGONAL</option>
+                                <option value="SPLINES">SPLINES</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="settings-label" for="settings-elk-splines-mode">Splines Mode</label>
+                            <select id="settings-elk-splines-mode" class="settings-select">
+                                <option value="CONSERVATIVE">CONSERVATIVE</option>
+                                <option value="SLOPPY">SLOPPY</option>
+                            </select>
+                        </div>
+                    </div>
+                    <details class="settings-advanced">
+                        <summary>Advanced layout settings</summary>
+                        <div class="settings-grid">
+                            <div>
+                                <label class="settings-label" for="settings-elk-layering">Layering</label>
+                                <select id="settings-elk-layering" class="settings-select">
+                                    <option value="NETWORK_SIMPLEX">NETWORK_SIMPLEX</option>
+                                    <option value="LONGEST_PATH">LONGEST_PATH</option>
+                                    <option value="INTERACTIVE">INTERACTIVE</option>
+                                    <option value="COFFMAN_GRAHAM">COFFMAN_GRAHAM</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-node-placement">Node Placement</label>
+                                <select id="settings-elk-node-placement" class="settings-select">
+                                    <option value="BRANDES_KOEPF">BRANDES_KOEPF</option>
+                                    <option value="LINEAR_SEGMENTS">LINEAR_SEGMENTS</option>
+                                    <option value="NETWORK_SIMPLEX">NETWORK_SIMPLEX</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-crossing">Crossing Minimization</label>
+                                <select id="settings-elk-crossing" class="settings-select">
+                                    <option value="LAYER_SWEEP">LAYER_SWEEP</option>
+                                    <option value="MEDIAN_LAYER_SWEEP">MEDIAN_LAYER_SWEEP</option>
+                                    <option value="INTERACTIVE">INTERACTIVE</option>
+                                    <option value="NONE">NONE</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-cycle-breaking">Cycle Breaking</label>
+                                <select id="settings-elk-cycle-breaking" class="settings-select">
+                                    <option value="GREEDY">GREEDY</option>
+                                    <option value="MODEL_ORDER">MODEL_ORDER</option>
+                                    <option value="GREEDY_MODEL_ORDER">GREEDY_MODEL_ORDER</option>
+                                    <option value="INTERACTIVE">INTERACTIVE</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-grid">
+                            <div>
+                                <label class="settings-label" for="settings-elk-thoroughness">Thoroughness</label>
+                                <input id="settings-elk-thoroughness" class="settings-input" type="number" min="1" max="20" step="1">
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-spacing-node">Spacing node-node</label>
+                                <input id="settings-elk-spacing-node" class="settings-input" type="number" min="10" step="5">
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-spacing-layer">Spacing between layers</label>
+                                <input id="settings-elk-spacing-layer" class="settings-input" type="number" min="20" step="10">
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-spacing-edge-node-layers">Edge-node between layers</label>
+                                <input id="settings-elk-spacing-edge-node-layers" class="settings-input" type="number" min="5" step="5">
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-spacing-edge-edge-layers">Edge-edge between layers</label>
+                                <input id="settings-elk-spacing-edge-edge-layers" class="settings-input" type="number" min="5" step="5">
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-spacing-edge-node">Edge-node spacing</label>
+                                <input id="settings-elk-spacing-edge-node" class="settings-input" type="number" min="5" step="5">
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-elk-spacing-edge-edge">Edge-edge spacing</label>
+                                <input id="settings-elk-spacing-edge-edge" class="settings-input" type="number" min="5" step="5">
+                            </div>
+                        </div>
+                        <div class="settings-checkboxes">
+                            <label class="settings-check"><input type="checkbox" id="settings-elk-consider-model"> Consider model order</label>
+                            <label class="settings-check"><input type="checkbox" id="settings-elk-merge-edges"> Merge edges</label>
+                        </div>
+                    </details>
+                    <details class="settings-advanced">
+                        <summary>Stress layout settings</summary>
+                        <div class="settings-grid">
+                            <div>
+                                <label class="settings-label" for="settings-stress-iterations">Iterations</label>
+                                <input id="settings-stress-iterations" class="settings-input" type="number" min="50" step="10">
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-stress-epsilon">Epsilon</label>
+                                <input id="settings-stress-epsilon" class="settings-input" type="number" min="0.0001" step="0.0001">
+                            </div>
+                            <div>
+                                <label class="settings-label" for="settings-stress-edge-length">Desired edge length</label>
+                                <input id="settings-stress-edge-length" class="settings-input" type="number" min="20" step="5">
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script type="module" src="app.js"></script>
 </body>

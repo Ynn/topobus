@@ -3,6 +3,7 @@ import { getDom } from './dom.js';
 import { clamp } from './utils.js';
 import { scheduleMinimap } from './minimap.js';
 import { selectCell, clearSelection } from './selection.js';
+import { readTheme } from './theme.js';
 
 export function bindInteractions() {
     const { paper } = state;
@@ -303,6 +304,184 @@ export function updateZoomLOD() {
     } else {
         paper.el.classList.remove('zoom-far');
     }
+    updateGroupSummaryLOD(sx);
+}
+
+function updateGroupSummaryLOD(scale) {
+    if (state.currentView !== 'group') {
+        disableGroupSummary();
+        return;
+    }
+    if (state.viewPreferences.groupGraph !== 'flat') {
+        disableGroupSummary();
+        return;
+    }
+    const showAt = 0.35;
+    const hideAt = 0.45;
+    if (state.groupSummaryMode) {
+        if (scale > hideAt) {
+            disableGroupSummary();
+        }
+        return;
+    }
+    if (scale < showAt) {
+        enableGroupSummary();
+    } else {
+        disableGroupSummary();
+    }
+}
+
+function enableGroupSummary() {
+    if (state.groupSummaryMode) return;
+    if (!state.graph || !state.currentGraphData) return;
+
+    const graphData = state.currentGraphData;
+    const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : [];
+    const gaToDevices = new Map();
+
+    nodes.forEach((node) => {
+        if (node.kind !== 'groupobject') return;
+        if (!node.parent_id) return;
+        const address = node.properties && node.properties.group_address ? node.properties.group_address : '';
+        if (!address) return;
+        if (!gaToDevices.has(address)) {
+            gaToDevices.set(address, new Set());
+        }
+        gaToDevices.get(address).add(node.parent_id);
+    });
+
+    const pairKeys = new Set();
+    gaToDevices.forEach((devices) => {
+        const list = Array.from(devices).sort();
+        if (list.length < 2) return;
+        const hub = list[0];
+        for (let i = 1; i < list.length; i += 1) {
+            const other = list[i];
+            if (hub === other) continue;
+            const [left, right] = hub < other ? [hub, other] : [other, hub];
+            pairKeys.add(`${left}|${right}`);
+        }
+    });
+
+    const theme = readTheme();
+    const aggregateLinks = [];
+    if (state.graph.startBatch) {
+        state.graph.startBatch('summary');
+    }
+    pairKeys.forEach((key) => {
+        const [a, b] = key.split('|');
+        const link = new joint.shapes.standard.Link({
+            source: { id: a },
+            target: { id: b },
+            attrs: {
+                line: {
+                    stroke: theme.accent,
+                    strokeWidth: 2.5,
+                    opacity: 0.9,
+                    targetMarker: { type: 'none' },
+                    sourceMarker: { type: 'none' }
+                }
+            }
+        });
+        link.set('isAggregate', true);
+        aggregateLinks.push(link);
+    });
+
+    if (aggregateLinks.length) {
+        state.graph.addCells(aggregateLinks);
+    }
+    state.groupSummaryLinks = aggregateLinks;
+
+    const hiddenLinks = [];
+    state.graph.getLinks().forEach((link) => {
+        if (link.get('isAggregate')) return;
+        hiddenLinks.push({
+            link,
+            lineDisplay: link.attr('line/display'),
+            lineOpacity: link.attr('line/opacity'),
+            labels: link.labels()
+        });
+        link.attr('line/display', 'none');
+        link.attr('line/opacity', 0);
+        if (link.labels().length) {
+            link.labels([]);
+        }
+    });
+    state.hiddenGroupLinks = hiddenLinks;
+
+    state.graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'groupobject') return;
+        el.attr('body/display', 'none');
+        el.attr('name/display', 'none');
+        el.attr('address/display', 'none');
+    });
+
+    state.graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'device') return;
+        const props = el.get('nodeProps') || {};
+        const summary = props.address || el.get('fullAddress') || el.attr('address/text') || '';
+        el.attr('name/display', 'none');
+        el.attr('address/display', 'none');
+        el.attr('summary/text', summary);
+        el.attr('summary/display', summary ? 'block' : 'none');
+    });
+
+    if (state.graph.stopBatch) {
+        state.graph.stopBatch('summary');
+    }
+    state.groupSummaryMode = true;
+}
+
+function disableGroupSummary() {
+    if (!state.groupSummaryMode) return;
+    if (!state.graph) return;
+    if (state.graph.startBatch) {
+        state.graph.startBatch('summary');
+    }
+
+    state.groupSummaryLinks.forEach((link) => {
+        if (state.graph.getCell(link.id)) {
+            link.remove();
+        }
+    });
+    state.groupSummaryLinks = [];
+
+    state.hiddenGroupLinks.forEach((entry) => {
+        const link = entry.link;
+        if (!link) return;
+        if (entry.lineDisplay != null) {
+            link.attr('line/display', entry.lineDisplay);
+        } else {
+            link.removeAttr('line/display');
+        }
+        if (entry.lineOpacity != null) {
+            link.attr('line/opacity', entry.lineOpacity);
+        } else {
+            link.removeAttr('line/opacity');
+        }
+        if (Array.isArray(entry.labels)) {
+            link.labels(entry.labels);
+        }
+    });
+    state.hiddenGroupLinks = [];
+
+    state.graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'groupobject') return;
+        el.removeAttr('body/display');
+        el.removeAttr('name/display');
+        el.removeAttr('address/display');
+    });
+    state.graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'device') return;
+        el.removeAttr('name/display');
+        el.removeAttr('address/display');
+        el.attr('summary/display', 'none');
+    });
+
+    if (state.graph.stopBatch) {
+        state.graph.stopBatch('summary');
+    }
+    state.groupSummaryMode = false;
 }
 
 export function zoomBy(factor) {

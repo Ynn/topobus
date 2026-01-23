@@ -1880,7 +1880,9 @@ function toggleGraphFullscreen() {
     const enabled = !body.classList.contains('graph-fullscreen');
     if (enabled) {
         body.classList.add('graph-fullscreen');
-        if (dom && dom.app && dom.app.requestFullscreen) {
+        if (document.documentElement && document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        } else if (dom && dom.app && dom.app.requestFullscreen) {
             dom.app.requestFullscreen().catch(() => {});
         }
     } else {
