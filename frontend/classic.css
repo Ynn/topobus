@@ -738,6 +738,7 @@ body.graph-fullscreen .window {
 /* Tables - Modern and Clean */
 table {
     width: max-content;
+    min-width: 100%;
     border-collapse: separate;
     border-spacing: 0;
     font-size: 12px;
@@ -838,6 +839,10 @@ td:last-child {
 
 tr {
     transition: background-color 0.15s ease;
+}
+
+tbody tr:nth-child(even) {
+    background: var(--bg-light);
 }
 
 tr:hover {
