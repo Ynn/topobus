@@ -7,7 +7,7 @@ import { readTheme } from './theme.js';
 const STORAGE_KEY = 'topobus.settings';
 
 const DEFAULT_SETTINGS = {
-    theme: 'latte',
+    theme: 'classic',
     elkPreset: 'balanced',
     elk: {
         algorithm: 'layered',
@@ -302,12 +302,15 @@ function refreshGraphTheme() {
 
 function applyTheme(theme) {
     const body = document.body;
-    if (!body) return;
-    if (theme === 'mocha') {
-        body.classList.add('theme-mocha');
-    } else {
-        body.classList.remove('theme-mocha');
-    }
+    const root = document.documentElement;
+    if (!body || !root) return;
+    body.classList.remove('theme-classic', 'theme-latte', 'theme-mocha');
+    root.classList.remove('theme-classic', 'theme-latte', 'theme-mocha');
+    const cls = theme === 'mocha'
+        ? 'theme-mocha'
+        : (theme === 'latte' ? 'theme-latte' : 'theme-classic');
+    body.classList.add(cls);
+    root.classList.add(cls);
 }
 
 function loadSettings() {
@@ -335,7 +338,7 @@ function mergeSettings(base, patch) {
 function syncSettingsUI(settings) {
     const dom = getDom();
     if (!dom) return;
-    if (dom.settingsTheme) dom.settingsTheme.value = settings.theme || 'latte';
+    if (dom.settingsTheme) dom.settingsTheme.value = settings.theme || 'classic';
     if (dom.settingsPreset) dom.settingsPreset.value = settings.elkPreset || 'custom';
     if (dom.settingsAlgorithm) dom.settingsAlgorithm.value = settings.elk.algorithm || 'layered';
     if (dom.settingsDirection) dom.settingsDirection.value = settings.elk.direction || 'RIGHT';

@@ -225,13 +225,25 @@ export function initShapes() {
                 fontWeight: 'bold',
                 fill: '#333',
                 fontFamily: theme.fontSans
+            },
+            summary: {
+                refX: '50%',
+                refY: '60%',
+                textAnchor: 'middle',
+                textVerticalAnchor: 'middle',
+                fontSize: 26,
+                fontWeight: 800,
+                fill: theme.ink,
+                fontFamily: theme.fontMono,
+                display: 'none'
             }
         }
     }, {
         markup: [
             { tagName: 'rect', selector: 'body' },
             { tagName: 'rect', selector: 'header' },
-            { tagName: 'text', selector: 'label' }
+            { tagName: 'text', selector: 'label' },
+            { tagName: 'text', selector: 'summary' }
         ]
     });
 }

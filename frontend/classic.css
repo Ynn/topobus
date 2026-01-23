@@ -7,14 +7,63 @@
 body {
     font-family: var(--font-sans);
     font-size: 13px;
-    background: linear-gradient(135deg, var(--ctp-base) 0%, var(--ctp-mantle) 100%);
+    background: linear-gradient(135deg, var(--bg-light) 0%, var(--bg-medium) 100%);
     overflow: hidden;
     height: 100vh;
     width: 100vw;
 }
 
 :root {
-    /* Catppuccin Latte (default) */
+    --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+.theme-classic {
+    --primary-blue: #2563eb;
+    --dark-blue: #1e40af;
+    --light-blue: #dbeafe;
+    --accent-blue: #60a5fa;
+    --sky-blue: #38bdf8;
+
+    --bg-white: #ffffff;
+    --bg-light: #f8fafc;
+    --bg-medium: #f1f5f9;
+    --bg-dark: #e2e8f0;
+    --border-color: #e2e8f0;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+
+    --selected-bg: #e0f2fe;
+    --hover-bg: #f1f5f9;
+
+    --accent: #0ea5e9;
+    --accent-strong: #2563eb;
+    --device-fill: #fde68a;
+    --device-header: #fcd34d;
+    --device-border: #f59e0b;
+    --coupler-fill: #e0f2fe;
+    --coupler-header: #bae6fd;
+    --coupler-border: #0ea5e9;
+    --object-fill: #fef3c7;
+    --object-fill-tx: #dcfce7;
+    --object-border: #f59e0b;
+    --line-fill: rgba(14, 165, 233, 0.12);
+    --line-border: #0ea5e9;
+    --area-fill: rgba(15, 23, 42, 0.04);
+    --area-border: #1e293b;
+
+    --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.08);
+    --shadow-md: 0 4px 10px -4px rgba(15, 23, 42, 0.18);
+    --shadow-lg: 0 14px 24px -12px rgba(15, 23, 42, 0.25);
+    --shadow-xl: 0 22px 32px -12px rgba(15, 23, 42, 0.3);
+    --border: var(--border-color);
+    --ink: var(--text-primary);
+    --muted: var(--text-secondary);
+}
+
+.theme-latte {
+    /* Catppuccin Latte */
     --ctp-base: #eff1f5;
     --ctp-mantle: #e6e9ef;
     --ctp-crust: #dce0e8;
@@ -48,7 +97,6 @@ body {
     --accent-blue: var(--ctp-lavender);
     --sky-blue: var(--ctp-sky);
 
-    /* Neutral Colors */
     --bg-white: var(--ctp-base);
     --bg-light: var(--ctp-mantle);
     --bg-medium: var(--ctp-surface0);
@@ -58,11 +106,9 @@ body {
     --text-secondary: var(--ctp-subtext1);
     --text-muted: var(--ctp-subtext0);
 
-    /* Interactive States */
     --selected-bg: #dfe3f9;
     --hover-bg: #e8ebf2;
 
-    /* Graph Theme Variables */
     --accent: var(--ctp-teal);
     --accent-strong: var(--ctp-sapphire);
     --device-fill: #f4d6cf;
@@ -79,7 +125,6 @@ body {
     --area-fill: rgba(76, 79, 105, 0.06);
     --area-border: var(--ctp-text);
 
-    /* Shadows */
     --shadow-sm: 0 1px 2px 0 rgba(76, 79, 105, 0.08);
     --shadow-md: 0 4px 6px -1px rgba(76, 79, 105, 0.15);
     --shadow-lg: 0 12px 20px -10px rgba(76, 79, 105, 0.25);
@@ -87,8 +132,6 @@ body {
     --border: var(--border-color);
     --ink: var(--text-primary);
     --muted: var(--text-secondary);
-    --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
-    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 .theme-mocha {
@@ -119,9 +162,26 @@ body {
     --ctp-blue: #89b4fa;
     --ctp-lavender: #b4befe;
 
+    --primary-blue: var(--ctp-blue);
+    --dark-blue: var(--ctp-sapphire);
+    --accent-blue: var(--ctp-lavender);
+    --sky-blue: var(--ctp-sky);
+
+    --bg-white: var(--ctp-base);
+    --bg-light: var(--ctp-mantle);
+    --bg-medium: var(--ctp-surface0);
+    --bg-dark: var(--ctp-surface1);
+    --border-color: var(--ctp-surface1);
+    --text-primary: var(--ctp-text);
+    --text-secondary: var(--ctp-subtext1);
+    --text-muted: var(--ctp-subtext0);
+
     --light-blue: rgba(137, 180, 250, 0.2);
     --selected-bg: rgba(137, 180, 250, 0.18);
     --hover-bg: rgba(69, 71, 90, 0.6);
+
+    --accent: var(--ctp-teal);
+    --accent-strong: var(--ctp-sapphire);
 
     --device-fill: rgba(245, 224, 220, 0.35);
     --device-header: rgba(245, 224, 220, 0.55);
@@ -687,6 +747,29 @@ body.graph-fullscreen .window {
     align-items: center;
 }
 
+.content-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.content-btn {
+    border: 1px solid var(--border-color);
+    background: var(--bg-white);
+    color: var(--text-secondary);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.content-btn:hover {
+    background: var(--light-blue);
+    border-color: var(--primary-blue);
+    color: var(--primary-blue);
+}
+
 .content-tab {
     padding: 10px 16px;
     font-size: 12px;
@@ -709,7 +792,7 @@ body.graph-fullscreen .window {
 .graph-mode {
     display: inline-flex;
     gap: 6px;
-    margin-left: auto;
+    margin-left: 12px;
 }
 
 .graph-mode-btn {

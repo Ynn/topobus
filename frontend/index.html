@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="theme-classic">
 
 <head>
     <meta charset="UTF-8">
@@ -22,7 +22,7 @@
     <script src="vendor/elk.bundled.js"></script>
 </head>
 
-<body>
+<body class="theme-classic">
     <!-- Overlay for Upload (Drag & Drop) -->
     <div id="upload-zone" class="upload-zone hidden">
         <div class="upload-content">
@@ -98,7 +98,10 @@
                 <div class="content-tabs" id="center-tabs">
                     <div class="content-tab active" data-tab="table">📋 Table View</div>
                     <div class="content-tab" data-tab="graph">🕸️ Graph View</div>
-                    <div class="graph-mode" id="graph-mode" style="margin-left: auto; display: none;">
+                    <div class="content-actions">
+                        <button class="content-btn" id="btn-export-csv">⬇ CSV</button>
+                    </div>
+                    <div class="graph-mode" id="graph-mode" style="display: none;">
                         <button class="graph-mode-btn active" data-mode="flat">Graph</button>
                         <button class="graph-mode-btn" data-mode="hierarchy">Hierarchy</button>
                     </div>
@@ -125,6 +128,7 @@
                          <div class="graph-toolbar" id="graph-toolbar">
                             <button class="toolbar-btn" id="btn-fit-view">🔍 Fit</button>
                             <button class="toolbar-btn" id="btn-relayout">🔄 Layout</button>
+                            <button class="toolbar-btn" id="btn-export-svg">⬇ SVG</button>
                             <button class="toolbar-btn" id="btn-graph-fullscreen">⛶ Full Screen</button>
                         </div>
                          <div id="paper-container" style="width: 100%; height: 100%; overflow: hidden;">
@@ -176,6 +180,7 @@
                     <h3>Theme</h3>
                     <label class="settings-label" for="settings-theme">Theme</label>
                     <select id="settings-theme" class="settings-select">
+                        <option value="classic">Classic</option>
                         <option value="latte">Latte</option>
                         <option value="mocha">Mocha</option>
                     </select>

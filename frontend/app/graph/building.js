@@ -317,7 +317,8 @@ function renderHierarchy(node, cells, absoluteX, absoluteY, metrics, depth) {
             size: { width: node.width, height: node.height },
             attrs: {
                 address: { text: address },
-                name: { text: name }
+                name: { text: name },
+                summary: { text: address }
             }
         });
         el.set('kind', 'device');

@@ -35,7 +35,8 @@ export const state = {
         line: 'all',
         mainGroup: 'all',
         groupAddress: 'all',
-        buildingSpace: 'all'
+        buildingSpace: 'all',
+        deviceManufacturer: 'all'
     },
     filterOptions: {
         areas: [],
@@ -48,12 +49,14 @@ export const state = {
     lastGraphKey: null,
     lastGraphViewType: null,
     groupSummaryMode: false,
+    groupHierarchySummaryMode: false,
+    deviceSummaryMode: false,
     groupSummaryLinks: [],
     hiddenGroupLinks: [],
     uiSettings: null,
     elkSettings: null,
     elkPreset: 'balanced',
-    themeName: 'latte',
+    themeName: 'classic',
     viewPreferences: {
         linkStyle: 'auto',
         density: 'comfortable',

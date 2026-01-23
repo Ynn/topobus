@@ -2,13 +2,14 @@ import { state } from '../state.js';
 import { readTheme } from '../theme.js';
 
 export function zForElement(kind, viewType) {
-    if (viewType === 'group') {
+    if (viewType === 'group' || viewType === 'device') {
         if (kind === 'groupobject') return 10;
         if (kind === 'device') return 1;
         return 5;
     }
     if (kind === 'area') return 1;
     if (kind === 'line') return 2;
+    if (kind === 'segment') return 2.5;
     return 3;
 }
 
@@ -23,6 +24,7 @@ export function updateLinkStyles() {
 
 export function applyLinkStyle(link, theme, highlighted) {
     const direction = link.get('linkDirection') || 'directed';
+    const isAggregate = Boolean(link.get('isAggregate'));
     const preference = state.viewPreferences.linkStyle || 'auto';
     let isDirected = direction === 'directed';
     let visible = preference !== 'hidden';
@@ -35,13 +37,13 @@ export function applyLinkStyle(link, theme, highlighted) {
 
     const strongHighlight = highlighted && state.currentView === 'group';
     const stroke = highlighted ? theme.accent : (isDirected ? theme.accent : theme.muted);
-    const strokeWidth = strongHighlight ? 4.2 : (highlighted ? 3 : 1.6);
-    const dash = strongHighlight ? '' : (isDirected ? '6 4' : '2 6');
+    const strokeWidth = strongHighlight ? 4.2 : (highlighted ? 3 : (isAggregate ? 2.2 : 1.6));
+    const dash = strongHighlight ? '' : (isAggregate ? '' : (isDirected ? '6 4' : '2 6'));
     link.attr('line/stroke', stroke);
     link.attr('line/strokeWidth', strokeWidth);
     link.attr('line/strokeDasharray', dash);
     link.attr('line/strokeLinecap', strongHighlight ? 'round' : 'butt');
-    link.attr('line/targetMarker', { type: 'path', d: '' });
+    link.attr('line/targetMarker', isAggregate ? { type: 'none' } : { type: 'path', d: '' });
     link.attr('line/opacity', strongHighlight ? 1 : (highlighted ? 0.9 : 0.65));
     link.attr('line/visibility', visible ? 'visible' : 'hidden');
 }
@@ -117,6 +119,14 @@ export function applyElementStyle(element, theme, selected) {
         element.attr('body/strokeWidth', selected ? 2.6 : 2);
         return;
     }
+
+    if (kind === 'segment') {
+        element.attr('body/stroke', selected ? theme.accent : theme.lineBorder);
+        element.attr('body/strokeWidth', selected ? 2.2 : 1.6);
+        element.attr('body/fill', theme.lineFill);
+        element.attr('header/fill', theme.areaFill);
+        return;
+    }
 }
 
 export function applySelectionStyles() {
@@ -134,6 +144,32 @@ export function applySelectionStyles() {
     if (!selected) return;
 
     const kind = selected.get('kind');
+    if ((kind === 'groupobject' || kind === 'composite-object') && state.groupSummaryMode) {
+        const ga = selected.get('groupAddress');
+        if (!ga) return;
+        const deviceIds = new Set();
+        elements.forEach((element) => {
+            const eKind = element.get('kind');
+            if ((eKind === 'groupobject' || eKind === 'composite-object') && element.get('groupAddress') === ga) {
+                const parentId = element.get('parent');
+                if (parentId) deviceIds.add(parentId);
+            }
+        });
+        deviceIds.forEach((deviceId) => {
+            const device = graph.getCell(deviceId);
+            if (device) applyElementStyle(device, theme, true);
+        });
+        links.forEach((link) => {
+            if (!link.get('isAggregate')) return;
+            const sourceId = link.get('source') && link.get('source').id;
+            const targetId = link.get('target') && link.get('target').id;
+            if (deviceIds.has(sourceId) && deviceIds.has(targetId)) {
+                applyLinkStyle(link, theme, true);
+            }
+        });
+        return;
+    }
+
     if (kind === 'groupobject' || kind === 'composite-object') {
         const ga = selected.get('groupAddress');
         const parentIds = new Set();
@@ -151,6 +187,86 @@ export function applySelectionStyles() {
         });
         links.forEach((link) => {
             if (link.get('groupAddress') === ga) {
+                applyLinkStyle(link, theme, true);
+            }
+        });
+        return;
+    }
+
+    if ((kind === 'device' || kind === 'composite-device') && state.groupSummaryMode) {
+        applyElementStyle(selected, theme, true);
+        const aggregateLinks = links.filter((link) => link.get('isAggregate'));
+        if (!aggregateLinks.length) return;
+        const adjacency = new Map();
+        aggregateLinks.forEach((link) => {
+            const sourceId = link.get('source') && link.get('source').id;
+            const targetId = link.get('target') && link.get('target').id;
+            if (!sourceId || !targetId) return;
+            if (!adjacency.has(sourceId)) adjacency.set(sourceId, new Set());
+            if (!adjacency.has(targetId)) adjacency.set(targetId, new Set());
+            adjacency.get(sourceId).add(targetId);
+            adjacency.get(targetId).add(sourceId);
+        });
+        const visited = new Set([selected.id]);
+        const queue = [selected.id];
+        while (queue.length) {
+            const id = queue.shift();
+            const neighbors = adjacency.get(id);
+            if (!neighbors) continue;
+            neighbors.forEach((next) => {
+                if (!visited.has(next)) {
+                    visited.add(next);
+                    queue.push(next);
+                }
+            });
+        }
+        visited.forEach((deviceId) => {
+            const device = graph.getCell(deviceId);
+            if (device) applyElementStyle(device, theme, true);
+        });
+        aggregateLinks.forEach((link) => {
+            const sourceId = link.get('source') && link.get('source').id;
+            const targetId = link.get('target') && link.get('target').id;
+            if (visited.has(sourceId) && visited.has(targetId)) {
+                applyLinkStyle(link, theme, true);
+            }
+        });
+        return;
+    }
+
+    if ((kind === 'device' || kind === 'composite-device') && state.currentView === 'devices') {
+        applyElementStyle(selected, theme, true);
+        const adjacency = new Map();
+        links.forEach((link) => {
+            const sourceId = link.get('source') && link.get('source').id;
+            const targetId = link.get('target') && link.get('target').id;
+            if (!sourceId || !targetId) return;
+            if (!adjacency.has(sourceId)) adjacency.set(sourceId, new Set());
+            if (!adjacency.has(targetId)) adjacency.set(targetId, new Set());
+            adjacency.get(sourceId).add(targetId);
+            adjacency.get(targetId).add(sourceId);
+        });
+        const visited = new Set([selected.id]);
+        const queue = [selected.id];
+        while (queue.length) {
+            const id = queue.shift();
+            const neighbors = adjacency.get(id);
+            if (!neighbors) continue;
+            neighbors.forEach((next) => {
+                if (!visited.has(next)) {
+                    visited.add(next);
+                    queue.push(next);
+                }
+            });
+        }
+        visited.forEach((deviceId) => {
+            const device = graph.getCell(deviceId);
+            if (device) applyElementStyle(device, theme, true);
+        });
+        links.forEach((link) => {
+            const sourceId = link.get('source') && link.get('source').id;
+            const targetId = link.get('target') && link.get('target').id;
+            if (visited.has(sourceId) && visited.has(targetId)) {
                 applyLinkStyle(link, theme, true);
             }
         });
@@ -215,6 +331,16 @@ export function applySelectionStyles() {
     }
 
     if (kind === 'line') {
+        applyElementStyle(selected, theme, true);
+        elements.forEach((element) => {
+            if (element.get('parent') === selected.id) {
+                applyElementStyle(element, theme, true);
+            }
+        });
+        return;
+    }
+
+    if (kind === 'segment') {
         applyElementStyle(selected, theme, true);
         elements.forEach((element) => {
             if (element.get('parent') === selected.id) {

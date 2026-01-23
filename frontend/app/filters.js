@@ -44,6 +44,7 @@ export function updateFilterOptions(project) {
     state.filters.mainGroup = ALL_VALUE;
     state.filters.groupAddress = ALL_VALUE;
     state.filters.buildingSpace = ALL_VALUE;
+    state.filters.deviceManufacturer = ALL_VALUE;
 
     const areas = buildAreaOptions(project);
     const linesByArea = buildLineOptions(project);
@@ -237,7 +238,7 @@ function filterProject(project, filters) {
 
     const filteredTopology = filterTopologyGraph(project.topology_graph, areaFilter, lineFilter);
     const filteredGroup = filterGroupGraph(project.group_address_graph, areaFilter, lineFilter, mainFilter, gaFilter);
-    const filteredDevices = filterDevices(project.devices, areaFilter, lineFilter);
+    const filteredDevices = filterDevices(project.devices, areaFilter, lineFilter, filters.deviceManufacturer);
     const filteredLocations = filterLocations(project.locations, filteredDevices, areaFilter, lineFilter, buildingFilter);
 
     return {
@@ -249,10 +250,16 @@ function filterProject(project, filters) {
     };
 }
 
-function filterDevices(devices, areaFilter, lineFilter) {
+function filterDevices(devices, areaFilter, lineFilter, manufacturerFilter) {
     if (!Array.isArray(devices)) return [];
-    if (areaFilter === ALL_VALUE && !lineFilter) return devices;
-    return devices.filter((device) => matchesDeviceAreaLine(device, areaFilter, lineFilter));
+    const needsAreaLine = !(areaFilter === ALL_VALUE && !lineFilter);
+    const needsManufacturer = manufacturerFilter && manufacturerFilter !== ALL_VALUE;
+    if (!needsAreaLine && !needsManufacturer) return devices;
+    return devices.filter((device) => {
+        if (needsAreaLine && !matchesDeviceAreaLine(device, areaFilter, lineFilter)) return false;
+        if (needsManufacturer && !matchesDeviceManufacturer(device, manufacturerFilter)) return false;
+        return true;
+    });
 }
 
 function matchesDeviceAreaLine(device, areaFilter, lineFilter) {
@@ -265,6 +272,12 @@ function matchesDeviceAreaLine(device, areaFilter, lineFilter) {
     }
     if (areaFilter === ALL_VALUE) return true;
     return area === areaFilter;
+}
+
+function matchesDeviceManufacturer(device, manufacturerFilter) {
+    const manufacturer = String(device && device.manufacturer ? device.manufacturer : '');
+    if (!manufacturerFilter || manufacturerFilter === ALL_VALUE) return true;
+    return manufacturer === manufacturerFilter;
 }
 
 function normalizeDevicePart(value) {
@@ -517,7 +530,7 @@ function sortNumericGroupOptions(a, b) {
 }
 
 function resolveGraphViewType(viewType) {
-    if (viewType === 'devices') return 'topology';
+    if (viewType === 'devices') return 'device';
     if (viewType === 'buildings') return 'building';
     if (viewType === 'group') {
         return state.viewPreferences.groupGraph === 'hierarchy' ? 'composite' : 'group';
@@ -527,6 +540,9 @@ function resolveGraphViewType(viewType) {
 
 function estimateGraphNodeCount(project, viewType) {
     if (!project) return 0;
+    if (viewType === 'device') {
+        return Array.isArray(project.devices) ? project.devices.length : 0;
+    }
     if (viewType === 'building') {
         const locations = Array.isArray(project.locations) ? project.locations : [];
         let spaces = 0;
@@ -564,7 +580,8 @@ function buildGraphRenderKey(viewType) {
         filters.line || 'all',
         filters.mainGroup || 'all',
         filters.groupAddress || 'all',
-        filters.buildingSpace || 'all'
+        filters.buildingSpace || 'all',
+        filters.deviceManufacturer || 'all'
     ].join('|');
 }
 

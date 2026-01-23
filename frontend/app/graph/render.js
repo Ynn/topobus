@@ -15,11 +15,14 @@ const LARGE_GRAPH_THRESHOLD = 1200;
 
 export function renderGraph(projectData, viewType) {
     const isBuilding = viewType === 'building';
+    const isDevice = viewType === 'device';
     const graphData = isBuilding
         ? null
-        : (viewType === 'topology'
-            ? projectData.topology_graph
-            : projectData.group_address_graph);
+        : (isDevice
+            ? buildDeviceGraphData(projectData)
+            : (viewType === 'topology'
+                ? buildTopologyGraphData(projectData)
+                : projectData.group_address_graph));
     state.currentGraphData = graphData;
     state.currentNodeIndex = graphData && graphData.nodes
         ? new Map(graphData.nodes.map(node => [node.id, node]))
@@ -56,6 +59,8 @@ export function renderGraph(projectData, viewType) {
         search: joint.dia.SearchGraph ? { type: 'quadtree' } : undefined
     });
     state.groupSummaryMode = false;
+    state.groupHierarchySummaryMode = false;
+    state.deviceSummaryMode = false;
     state.groupSummaryLinks = [];
     state.hiddenGroupLinks = [];
     state.hiddenGroupLinks = [];
@@ -74,7 +79,7 @@ export function renderGraph(projectData, viewType) {
         validateUnembedding: () => false,
         interactive: state.interactiveFunc = (cellView) => {
             const kind = cellView.model.get('kind');
-            if (viewType === 'group') {
+            if (viewType === 'group' || viewType === 'device') {
                 if (kind === 'groupobject') {
                     return { elementMove: false, linkMove: false, labelMove: false };
                 }
@@ -204,12 +209,12 @@ export function renderGraph(projectData, viewType) {
         state.graph.addCells(links.concat(elements));
     }
 
-    if (viewType === 'group') {
+    if (viewType === 'group' || viewType === 'device') {
         const deviceCount = nodesToRender.filter(node => node.kind === 'device').length;
         if (deviceCount > 1 && typeof window !== 'undefined' && window.ELK) {
             startGraphLoading('Optimizing layout...');
         }
-        layoutGroupView(nodesToRender, elementsById);
+        layoutGroupView(nodesToRender, elementsById, { viewType });
     } else {
         layoutTopologyView(nodesToRender, elementsById);
     }
@@ -246,6 +251,174 @@ function filterGroupViewNodes(nodes) {
         if (node.kind === 'device') return deviceIds.has(node.id);
         return true;
     });
+}
+
+function buildDeviceGraphData(projectData) {
+    const graph = projectData && projectData.group_address_graph ? projectData.group_address_graph : null;
+    if (!graph || !Array.isArray(graph.nodes)) {
+        return { nodes: [], edges: [] };
+    }
+    const allowedAddresses = new Set();
+    if (Array.isArray(projectData.devices) && projectData.devices.length) {
+        projectData.devices.forEach((device) => {
+            if (device && device.individual_address) {
+                allowedAddresses.add(device.individual_address);
+            }
+        });
+    }
+
+    const deviceNodes = graph.nodes.filter((node) => {
+        if (node.kind !== 'device') return false;
+        if (!allowedAddresses.size) return true;
+        const addr = node.properties && node.properties.address ? node.properties.address : '';
+        return allowedAddresses.has(addr);
+    });
+    const allowedDeviceIds = new Set(deviceNodes.map((node) => node.id));
+
+    const gaToDevices = new Map();
+    graph.nodes.forEach((node) => {
+        if (node.kind !== 'groupobject') return;
+        const parent = node.parent_id;
+        if (!parent || !allowedDeviceIds.has(parent)) return;
+        const ga = node.properties && node.properties.group_address ? node.properties.group_address : '';
+        if (!ga) return;
+        if (!gaToDevices.has(ga)) {
+            gaToDevices.set(ga, new Set());
+        }
+        gaToDevices.get(ga).add(parent);
+    });
+
+    const deviceCount = deviceNodes.length;
+    const maxEdges = Math.max(1500, Math.min(15000, deviceCount * 4));
+    const maxPairs = Math.max(5000, maxEdges * 3);
+    const pairMap = new Map();
+    gaToDevices.forEach((devices, ga) => {
+        const list = Array.from(devices).sort();
+        if (list.length < 2) return;
+        const hub = list[0];
+        for (let i = 1; i < list.length; i += 1) {
+            const target = list[i];
+            const [a, b] = hub < target ? [hub, target] : [target, hub];
+            const key = `${a}|${b}`;
+            let entry = pairMap.get(key);
+            if (!entry) {
+                if (pairMap.size >= maxPairs) return;
+                entry = { source: a, target: b, count: 0, addresses: [] };
+                pairMap.set(key, entry);
+            }
+            entry.count += 1;
+            if (entry.addresses.length < 6) {
+                entry.addresses.push(ga);
+            }
+        }
+    });
+
+    const entries = Array.from(pairMap.values());
+    entries.sort((a, b) => b.count - a.count);
+    const selected = entries.slice(0, maxEdges);
+
+    const edges = selected.map((entry, idx) => ({
+        id: `device_link_${idx}`,
+        source: entry.source,
+        target: entry.target,
+        kind: 'links',
+        label: null,
+        properties: {
+            direction: 'undirected',
+            link_count: String(entry.count),
+            group_addresses: entry.addresses.join(', ')
+        }
+    }));
+
+    return { nodes: deviceNodes, edges };
+}
+
+function buildTopologyGraphData(projectData) {
+    const graph = projectData && projectData.topology_graph ? projectData.topology_graph : null;
+    if (!graph || !Array.isArray(graph.nodes)) {
+        return { nodes: [], edges: [] };
+    }
+
+    const nodes = graph.nodes.map((node) => ({
+        ...node,
+        properties: { ...(node.properties || {}) }
+    }));
+    const edges = Array.isArray(graph.edges) ? graph.edges.map((edge) => ({ ...edge })) : [];
+
+    const devices = nodes.filter((node) => node.kind === 'device');
+    const segmentsByLine = new Map();
+
+    devices.forEach((device) => {
+        const lineId = device.parent_id;
+        if (!lineId) return;
+        const segmentKey = resolveSegmentKeyFromNode(device);
+        if (!segmentsByLine.has(lineId)) {
+            segmentsByLine.set(lineId, new Map());
+        }
+        const segmentMap = segmentsByLine.get(lineId);
+        if (!segmentMap.has(segmentKey)) {
+            segmentMap.set(segmentKey, buildSegmentInfoFromNode(device, segmentKey, lineId));
+        }
+    });
+
+    segmentsByLine.forEach((segmentMap, lineId) => {
+        if (segmentMap.size <= 1) return;
+        segmentMap.forEach((segmentInfo, segmentKey) => {
+            nodes.push({
+                id: segmentInfo.id,
+                kind: 'segment',
+                label: segmentInfo.label,
+                parent_id: lineId,
+                properties: {
+                    segment: segmentInfo.label,
+                    name: segmentInfo.name,
+                    medium: segmentInfo.medium,
+                    domain: segmentInfo.domain,
+                    segment_id: segmentInfo.segmentId,
+                    segment_number: segmentInfo.segmentNumber
+                }
+            });
+            segmentMap.set(segmentKey, segmentInfo);
+        });
+
+        devices.forEach((device) => {
+            if (device.parent_id !== lineId) return;
+            const segmentKey = resolveSegmentKeyFromNode(device);
+            const segmentInfo = segmentMap.get(segmentKey);
+            if (segmentInfo) {
+                device.parent_id = segmentInfo.id;
+            }
+        });
+    });
+
+    return { nodes, edges };
+}
+
+function resolveSegmentKeyFromNode(node) {
+    const props = node && node.properties ? node.properties : {};
+    const number = props.segment_number != null ? String(props.segment_number) : '';
+    const id = props.segment_id != null ? String(props.segment_id) : '';
+    if (number) return number;
+    if (id) return id;
+    return '0';
+}
+
+function buildSegmentInfoFromNode(node, segmentKey, lineId) {
+    const props = node && node.properties ? node.properties : {};
+    const number = props.segment_number != null ? String(props.segment_number) : '';
+    const id = props.segment_id != null ? String(props.segment_id) : '';
+    const label = number ? `Segment ${number}` : (id ? `Segment ${id}` : 'Segment 0');
+    const safeLine = String(lineId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeSeg = String(segmentKey || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    return {
+        id: `segment_${safeLine}_${safeSeg}`,
+        label,
+        name: id && number ? id : '',
+        medium: props.segment_medium || props.segment_medium_type || '',
+        domain: props.segment_domain_address || props.segment_domain || '',
+        segmentId: id,
+        segmentNumber: number
+    };
 }
 
 function countBuildingNodes(projectData) {
@@ -307,7 +480,7 @@ export function createNodeElement(node) {
             attrs: {
                 address: { text: address },
                 name: { text: displayName },
-                summary: { text: '' }
+                summary: { text: address }
             }
         });
         element.set('fullAddress', address);
@@ -354,6 +527,19 @@ export function createNodeElement(node) {
     }
 
     if (node.kind === 'line') {
+        const element = new joint.shapes.knx.Line({
+            id: node.id,
+            kind: node.kind,
+            attrs: {
+                label: { text: node.label }
+            }
+        });
+        element.set('fullLabel', node.label);
+        element.set('nodeProps', node.properties || {});
+        return element;
+    }
+
+    if (node.kind === 'segment') {
         const element = new joint.shapes.knx.Line({
             id: node.id,
             kind: node.kind,

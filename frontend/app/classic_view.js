@@ -4,7 +4,7 @@ import { applyFiltersAndRender } from './filters.js';
 import { formatDeviceName } from './utils.js';
 import { resolveDatapointInfo } from './dpt.js';
 import { selectCell, highlightCell, registerSelectionListener } from './selection.js';
-import { focusCell, fitContent } from './interactions.js';
+import { focusCell, fitContent, exportSvg } from './interactions.js';
 
 // View metadata and table layouts.
 const viewConstants = {
@@ -319,6 +319,8 @@ function setupToolbarControls() {
     const fitBtn = document.getElementById('btn-fit-view');
     const relayoutBtn = document.getElementById('btn-relayout');
     const fullscreenBtn = document.getElementById('btn-graph-fullscreen');
+    const exportSvgBtn = document.getElementById('btn-export-svg');
+    const exportCsvBtn = document.getElementById('btn-export-csv');
 
     if (expandBtn) {
         expandBtn.addEventListener('click', () => expandTree(true));
@@ -353,6 +355,12 @@ function setupToolbarControls() {
     }
     if (fullscreenBtn) {
         fullscreenBtn.addEventListener('click', () => toggleGraphFullscreen());
+    }
+    if (exportSvgBtn) {
+        exportSvgBtn.addEventListener('click', () => exportSvg());
+    }
+    if (exportCsvBtn) {
+        exportCsvBtn.addEventListener('click', () => exportTableCsv());
     }
 }
 
@@ -1304,6 +1312,7 @@ function updateGraphFiltersFromSelection(selection) {
     state.filters.mainGroup = 'all';
     state.filters.groupAddress = 'all';
     state.filters.buildingSpace = 'all';
+    state.filters.deviceManufacturer = 'all';
 
     if (state.currentView === 'group') {
         if (selection.kind === 'group-main') {
@@ -1333,7 +1342,9 @@ function updateGraphFiltersFromSelection(selection) {
     }
 
     if (state.currentView === 'devices') {
-        if (selection.kind === 'device') {
+        if (selection.kind === 'device-manufacturer') {
+            state.filters.deviceManufacturer = selection.value || 'all';
+        } else if (selection.kind === 'device') {
             const parts = String(selection.deviceAddress || '').split('.');
             if (parts.length >= 2) {
                 state.filters.area = parts[0];
@@ -1626,6 +1637,37 @@ function applyTableSort(rows) {
     return sorted;
 }
 
+function exportTableCsv() {
+    const rows = applyTableSort(applyTableSearch(tableSourceData || []));
+    if (!rows.length || !tableColumnLabels.length) return;
+    const keys = tableColumnKeys.length ? tableColumnKeys : Object.keys(rows[0].data || {});
+    const header = tableColumnLabels;
+    const lines = [];
+    lines.push(header.map(escapeCsv).join(','));
+    rows.forEach((row) => {
+        const data = row.data || {};
+        const values = keys.map((key) => data[key]);
+        lines.push(values.map(escapeCsv).join(','));
+    });
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `topobus-${state.currentView}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+function escapeCsv(value) {
+    if (value == null) return '';
+    const str = String(value);
+    if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+}
+
 function getTableValue(row, index) {
     const key = tableColumnKeys[index];
     if (key && row.data) {
@@ -1751,6 +1793,20 @@ function renderPropertiesPanel(item) {
         if (d.prod) content += createPropGroup('Product', d.prod);
         if (d.app) content += createPropGroup('Application', d.app);
         content += '</div>';
+        const ipAssignment = raw && raw.ip_assignment ? raw.ip_assignment : '';
+        const ipAddress = raw && raw.ip_address ? raw.ip_address : '';
+        const ipMask = raw && raw.ip_subnet_mask ? raw.ip_subnet_mask : '';
+        const ipGateway = raw && raw.ip_default_gateway ? raw.ip_default_gateway : '';
+        const macAddress = raw && raw.mac_address ? raw.mac_address : '';
+        if (ipAssignment || ipAddress || ipMask || ipGateway || macAddress) {
+            content += '<div class="panel-section"><h3>Network</h3>';
+            if (ipAssignment) content += createPropGroup('IP Assignment', ipAssignment);
+            if (ipAddress) content += createPropGroup('IP Address', ipAddress);
+            if (ipMask) content += createPropGroup('Subnet Mask', ipMask);
+            if (ipGateway) content += createPropGroup('Default Gateway', ipGateway);
+            if (macAddress) content += createPropGroup('MAC Address', macAddress);
+            content += '</div>';
+        }
     } else if (kind === 'group-object') {
         const link = raw && raw.link ? raw.link : (raw && raw.node ? raw.node.properties : raw);
         const device = raw && raw.device ? raw.device : null;

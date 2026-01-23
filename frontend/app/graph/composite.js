@@ -466,6 +466,9 @@ function renderHierarchy(node, cells, absoluteX, absoluteY, metrics) {
                     fill: theme.ink,
                     refY: Math.round(headerHeight * 0.62)
                 },
+                summary: {
+                    text: node.address || ''
+                },
                 body: {
                     fill: theme.objectFill,
                     stroke: theme.objectBorder,

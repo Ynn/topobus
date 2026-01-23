@@ -15,9 +15,11 @@ import {
 
 let cachedElk = null;
 
-export function layoutGroupView(nodes, elementsById) {
+export function layoutGroupView(nodes, elementsById, options = {}) {
     const elk = getElkInstance();
-    const shouldUseElk = Boolean(elk);
+    const viewType = options.viewType || state.currentView;
+    const allowElk = options.enableElk !== false && viewType === 'group';
+    const shouldUseElk = Boolean(elk && allowElk);
     const deviceNodes = nodes
         .filter(n => n.kind === 'device')
         .sort((a, b) => compareIndividualAddress(a, b));
@@ -313,6 +315,9 @@ export function layoutTopologyView(nodes, elementsById) {
     const lineNodes = nodes
         .filter(n => n.kind === 'line')
         .sort((a, b) => compareLabelNumber(a.label, b.label));
+    const segmentNodes = nodes
+        .filter(n => n.kind === 'segment')
+        .sort((a, b) => compareLabelNumber(a.label, b.label));
     const deviceNodes = nodes
         .filter(n => n.kind === 'device')
         .sort((a, b) => compareIndividualAddress(a, b));
@@ -336,16 +341,29 @@ export function layoutTopologyView(nodes, elementsById) {
     });
 
     const devicesByLine = new Map();
+    const devicesByParent = new Map();
     deviceNodes.forEach(device => {
         const parent = device.parent_id || 'root';
-        if (!devicesByLine.has(parent)) {
-            devicesByLine.set(parent, []);
+        if (!devicesByParent.has(parent)) {
+            devicesByParent.set(parent, []);
         }
-        devicesByLine.get(parent).push(device);
+        devicesByParent.get(parent).push(device);
     });
 
-    devicesByLine.forEach(list => {
+    devicesByParent.forEach(list => {
         list.sort((a, b) => compareIndividualAddress(a, b));
+    });
+
+    const segmentsByLine = new Map();
+    segmentNodes.forEach(segment => {
+        const parent = segment.parent_id || 'root';
+        if (!segmentsByLine.has(parent)) {
+            segmentsByLine.set(parent, []);
+        }
+        segmentsByLine.get(parent).push(segment);
+    });
+    segmentsByLine.forEach(list => {
+        list.sort((a, b) => compareLabelNumber(a.label, b.label));
     });
 
     const settings = getLayoutSettings();
@@ -361,10 +379,43 @@ export function layoutTopologyView(nodes, elementsById) {
     const areaHeader = settings.areaHeader;
     const areaGap = settings.areaGap;
     const lineInnerGap = settings.lineInnerGap;
+    const segmentPadding = Math.max(10, Math.round(linePadding * 0.7));
+    const segmentHeader = Math.max(24, Math.round(lineHeader * 0.75));
+    const segmentGap = Math.max(10, Math.round(lineInnerGap * 0.8));
+    const segmentInnerGap = Math.max(10, Math.round(lineInnerGap * 0.8));
 
     const lineLayouts = new Map();
     lineNodes.forEach(line => {
-        const devices = devicesByLine.get(line.id) || [];
+        const segments = segmentsByLine.get(line.id) || [];
+        if (segments.length) {
+            let maxWidth = Math.round(220 * settings.scale);
+            let totalHeight = lineHeader + linePadding;
+            const segLayouts = new Map();
+
+            segments.forEach(segment => {
+                const devices = devicesByParent.get(segment.id) || [];
+                const cols = Math.max(1, Math.min(3, devices.length || 1));
+                const rows = Math.ceil(devices.length / cols);
+                const width = Math.max(
+                    Math.round(200 * settings.scale),
+                    segmentPadding * 2 + cols * deviceSize.width + (cols - 1) * segmentInnerGap
+                );
+                const height = segmentHeader + segmentPadding +
+                    rows * deviceSize.height + Math.max(0, rows - 1) * segmentInnerGap;
+                segLayouts.set(segment.id, { segment, devices, width, height, cols });
+                maxWidth = Math.max(maxWidth, width);
+                totalHeight += height + segmentGap;
+            });
+
+            if (segments.length) {
+                totalHeight -= segmentGap;
+            }
+            const width = Math.max(maxWidth + linePadding * 2, Math.round(220 * settings.scale));
+            lineLayouts.set(line.id, { line, segments, segLayouts, width, height: totalHeight });
+            return;
+        }
+
+        const devices = devicesByParent.get(line.id) || [];
         const cols = Math.max(1, Math.min(3, devices.length || 1));
         const rows = Math.ceil(devices.length / cols);
         const width = Math.max(
@@ -372,7 +423,7 @@ export function layoutTopologyView(nodes, elementsById) {
             linePadding * 2 + cols * deviceSize.width + (cols - 1) * lineInnerGap
         );
         const height = lineHeader + linePadding + rows * deviceSize.height + Math.max(0, rows - 1) * lineInnerGap;
-        lineLayouts.set(line.id, { line, devices, width, height });
+        lineLayouts.set(line.id, { line, devices, width, height, cols });
     });
 
     const areaLayouts = [];
@@ -429,21 +480,56 @@ export function layoutTopologyView(nodes, elementsById) {
             updateContainerLabel(lineEl, lineLayout.width, settings, 'line');
             yCursor += lineLayout.height + lineGap;
 
-            const devices = lineLayout.devices;
-            const cols = Math.max(1, Math.min(3, devices.length || 1));
-            devices.forEach((device, index) => {
-                const deviceEl = elementsById.get(device.id);
-                if (!deviceEl) return;
-                const row = Math.floor(index / cols);
-                const col = index % cols;
-                const dx = x + linePadding + col * (deviceSize.width + lineInnerGap);
-                const dy = lineEl.position().y + lineHeader + row * (deviceSize.height + lineInnerGap);
-                deviceEl.resize(deviceSize.width, deviceSize.height);
-                deviceEl.position(dx, dy);
-                updateDeviceText(deviceEl, deviceSize.width, settings);
-                lineEl.embed(deviceEl);
-                deviceEl.set('expectedParent', lineEl.id);
-            });
+            if (lineLayout.segments && lineLayout.segments.length) {
+                let segCursor = lineEl.position().y + lineHeader;
+                lineLayout.segments.forEach((segment) => {
+                    const segLayout = lineLayout.segLayouts.get(segment.id);
+                    const segEl = elementsById.get(segment.id);
+                    if (!segLayout || !segEl) return;
+                    const segX = x + linePadding;
+                    segEl.resize(segLayout.width, segLayout.height);
+                    segEl.position(segX, segCursor);
+                    updateContainerLabel(segEl, segLayout.width, settings, 'segment');
+                    segEl.set('containerPadding', segmentPadding);
+                    segEl.set('containerHeader', segmentHeader);
+
+                    const devices = segLayout.devices || [];
+                    const cols = segLayout.cols || Math.max(1, Math.min(3, devices.length || 1));
+                    devices.forEach((device, index) => {
+                        const deviceEl = elementsById.get(device.id);
+                        if (!deviceEl) return;
+                        const row = Math.floor(index / cols);
+                        const col = index % cols;
+                        const dx = segX + segmentPadding + col * (deviceSize.width + segmentInnerGap);
+                        const dy = segEl.position().y + segmentHeader + row * (deviceSize.height + segmentInnerGap);
+                        deviceEl.resize(deviceSize.width, deviceSize.height);
+                        deviceEl.position(dx, dy);
+                        updateDeviceText(deviceEl, deviceSize.width, settings);
+                        segEl.embed(deviceEl);
+                        deviceEl.set('expectedParent', segEl.id);
+                    });
+
+                    lineEl.embed(segEl);
+                    segEl.set('expectedParent', lineEl.id);
+                    segCursor += segLayout.height + segmentGap;
+                });
+            } else {
+                const devices = lineLayout.devices || [];
+                const cols = lineLayout.cols || Math.max(1, Math.min(3, devices.length || 1));
+                devices.forEach((device, index) => {
+                    const deviceEl = elementsById.get(device.id);
+                    if (!deviceEl) return;
+                    const row = Math.floor(index / cols);
+                    const col = index % cols;
+                    const dx = x + linePadding + col * (deviceSize.width + lineInnerGap);
+                    const dy = lineEl.position().y + lineHeader + row * (deviceSize.height + lineInnerGap);
+                    deviceEl.resize(deviceSize.width, deviceSize.height);
+                    deviceEl.position(dx, dy);
+                    updateDeviceText(deviceEl, deviceSize.width, settings);
+                    lineEl.embed(deviceEl);
+                    deviceEl.set('expectedParent', lineEl.id);
+                });
+            }
 
             areaEl.embed(lineEl);
             lineEl.set('expectedParent', areaEl.id);
@@ -543,7 +629,7 @@ export function updateGroupObjectText(objectEl, width, settings) {
 
 export function updateContainerLabel(element, width, settings, kind) {
     const theme = readTheme();
-    const baseSize = kind === 'area' ? 13 : 12;
+    const baseSize = kind === 'area' ? 13 : (kind === 'segment' ? 11 : 12);
     const fontSize = Math.max(10, Math.round(baseSize * settings.scale));
     const fullLabel = element.get('fullLabel') || element.attr('label/text') || '';
     const maxWidth = Math.max(80, width - settings.padding * 2);
@@ -552,7 +638,11 @@ export function updateContainerLabel(element, width, settings, kind) {
     const font = `700 ${fontSize}px ${theme.fontSans}`;
     element.attr('label/text', fitTextToWidth(fullLabel, maxWidth, font));
 
-    const headerHeight = kind === 'area' ? settings.areaHeader : settings.lineHeader;
+    const headerHeight = kind === 'area'
+        ? settings.areaHeader
+        : (kind === 'segment'
+            ? Math.max(24, Math.round(settings.lineHeader * 0.75))
+            : settings.lineHeader);
     element.attr('header/height', headerHeight);
     element.attr('label/refY', Math.round(headerHeight * 0.55));
 }
@@ -591,7 +681,7 @@ export function resizeParentNode(cell) {
     if (!parent) return;
 
     const kind = parent.get('kind');
-    const isTopology = kind === 'area' || kind === 'line';
+    const isTopology = kind === 'area' || kind === 'line' || kind === 'segment';
     const isComposite = kind && kind.startsWith('composite-');
 
     if (!isTopology && !isComposite) return;
@@ -604,8 +694,16 @@ export function resizeParentNode(cell) {
     let headerHeight = 30;
 
     if (isTopology) {
-        padding = kind === 'area' ? (settings ? settings.areaPadding : 24) : (settings ? settings.linePadding : 16);
-        headerHeight = kind === 'area' ? (settings ? settings.areaHeader : 34) : (settings ? settings.lineHeader : 32);
+        if (kind === 'area') {
+            padding = settings ? settings.areaPadding : 24;
+            headerHeight = settings ? settings.areaHeader : 34;
+        } else if (kind === 'segment') {
+            padding = settings ? Math.max(10, Math.round(settings.linePadding * 0.7)) : 12;
+            headerHeight = settings ? Math.max(24, Math.round(settings.lineHeader * 0.75)) : 24;
+        } else {
+            padding = settings ? settings.linePadding : 16;
+            headerHeight = settings ? settings.lineHeader : 32;
+        }
     } else {
         padding = 15;
         headerHeight = 35;

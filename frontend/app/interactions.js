@@ -305,6 +305,8 @@ export function updateZoomLOD() {
         paper.el.classList.remove('zoom-far');
     }
     updateGroupSummaryLOD(sx);
+    updateGroupHierarchySummaryLOD(sx);
+    updateDeviceSummaryLOD(sx);
 }
 
 function updateGroupSummaryLOD(scale) {
@@ -329,6 +331,146 @@ function updateGroupSummaryLOD(scale) {
     } else {
         disableGroupSummary();
     }
+}
+
+function updateGroupHierarchySummaryLOD(scale) {
+    if (state.currentView !== 'group' || state.viewPreferences.groupGraph !== 'hierarchy') {
+        disableGroupHierarchySummary();
+        return;
+    }
+    const showAt = 0.35;
+    const hideAt = 0.45;
+    if (state.groupHierarchySummaryMode) {
+        if (scale > hideAt) {
+            disableGroupHierarchySummary();
+        }
+        return;
+    }
+    if (scale < showAt) {
+        enableGroupHierarchySummary();
+    } else {
+        disableGroupHierarchySummary();
+    }
+}
+
+function enableGroupHierarchySummary() {
+    if (state.groupHierarchySummaryMode || !state.graph) return;
+    if (state.graph.startBatch) {
+        state.graph.startBatch('ga-summary');
+    }
+    state.graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'composite-ga') return;
+        const address = el.get('groupAddress') || el.get('fullAddress') || '';
+        const size = typeof el.size === 'function' ? el.size() : { height: 60 };
+        const fontSize = Math.max(22, Math.min(46, Math.round((size.height || 60) * 0.35)));
+        el.attr('summary/text', address);
+        el.attr('summary/fontSize', fontSize);
+        el.attr('summary/display', address ? 'block' : 'none');
+    });
+    state.graph.getElements().forEach((el) => {
+        const kind = el.get('kind');
+        if (kind === 'composite-device') {
+            el.attr('body/display', 'none');
+            el.attr('header/display', 'none');
+            el.attr('headerMask/display', 'none');
+            el.attr('address/display', 'none');
+            el.attr('name/display', 'none');
+            el.attr('summary/display', 'none');
+        } else if (kind === 'composite-object') {
+            el.attr('body/display', 'none');
+            el.attr('name/display', 'none');
+            el.attr('address/display', 'none');
+        }
+    });
+    if (state.graph.stopBatch) {
+        state.graph.stopBatch('ga-summary');
+    }
+    state.groupHierarchySummaryMode = true;
+}
+
+function disableGroupHierarchySummary() {
+    if (!state.groupHierarchySummaryMode || !state.graph) return;
+    if (state.graph.startBatch) {
+        state.graph.startBatch('ga-summary');
+    }
+    state.graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'composite-ga') return;
+        el.attr('summary/display', 'none');
+    });
+    state.graph.getElements().forEach((el) => {
+        const kind = el.get('kind');
+        if (kind === 'composite-device') {
+            el.removeAttr('body/display');
+            el.removeAttr('header/display');
+            el.removeAttr('headerMask/display');
+            el.removeAttr('address/display');
+            el.removeAttr('name/display');
+            el.removeAttr('summary/display');
+        } else if (kind === 'composite-object') {
+            el.removeAttr('body/display');
+            el.removeAttr('name/display');
+            el.removeAttr('address/display');
+        }
+    });
+    if (state.graph.stopBatch) {
+        state.graph.stopBatch('ga-summary');
+    }
+    state.groupHierarchySummaryMode = false;
+}
+
+function updateDeviceSummaryLOD(scale) {
+    if (!state.graph) return;
+    if (state.currentView === 'group') {
+        if (state.deviceSummaryMode) {
+            disableDeviceSummary();
+        }
+        return;
+    }
+    const show = scale < 0.35;
+    if (show && !state.deviceSummaryMode) {
+        enableDeviceSummary();
+        return;
+    }
+    if (!show && state.deviceSummaryMode) {
+        disableDeviceSummary();
+    }
+}
+
+function enableDeviceSummary() {
+    if (state.deviceSummaryMode || !state.graph) return;
+    if (state.graph.startBatch) {
+        state.graph.startBatch('device-summary');
+    }
+    state.graph.getElements().forEach((el) => {
+        const kind = el.get('kind');
+        if (kind !== 'device' && kind !== 'composite-device') return;
+        const address = el.get('fullAddress') || el.attr('address/text') || '';
+        const size = typeof el.size === 'function' ? el.size() : { height: 60 };
+        const fontSize = Math.max(24, Math.min(48, Math.round((size.height || 60) * 0.7)));
+        el.attr('summary/text', address);
+        el.attr('summary/fontSize', fontSize);
+        el.attr('summary/display', address ? 'block' : 'none');
+    });
+    if (state.graph.stopBatch) {
+        state.graph.stopBatch('device-summary');
+    }
+    state.deviceSummaryMode = true;
+}
+
+function disableDeviceSummary() {
+    if (!state.deviceSummaryMode || !state.graph) return;
+    if (state.graph.startBatch) {
+        state.graph.startBatch('device-summary');
+    }
+    state.graph.getElements().forEach((el) => {
+        const kind = el.get('kind');
+        if (kind !== 'device' && kind !== 'composite-device') return;
+        el.attr('summary/display', 'none');
+    });
+    if (state.graph.stopBatch) {
+        state.graph.stopBatch('device-summary');
+    }
+    state.deviceSummaryMode = false;
 }
 
 function enableGroupSummary() {
