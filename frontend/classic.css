@@ -1579,6 +1579,32 @@ tr.table-spacer td {
     color: var(--text-primary);
 }
 
+.help-section {
+    background: var(--bg-white);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+
+.help-section + .help-section {
+    margin-top: 14px;
+}
+
+.help-list {
+    display: grid;
+    gap: 8px;
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+.help-paragraph {
+    margin-top: 10px;
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+
 .settings-label {
     display: block;
     font-size: 11px;

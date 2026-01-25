@@ -43,6 +43,9 @@ export function initDom() {
         // Search
         searchInput: document.getElementById('search-input'),
         searchClear: document.querySelector('.search-clear'),
+        helpBtn: document.getElementById('help-btn'),
+        helpOverlay: document.getElementById('help-overlay'),
+        helpClose: document.getElementById('help-close'),
         settingsBtn: document.getElementById('settings-btn'),
         settingsOverlay: document.getElementById('settings-overlay'),
         settingsClose: document.getElementById('settings-close'),

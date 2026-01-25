@@ -67,6 +67,7 @@
                 <div class="tab" data-view-type="devices">🔌 Devices</div>
             </div>
             <div class="search-container" style="margin-left: auto; margin-right: 16px;">
+                <button class="icon-btn settings-btn" id="help-btn" title="Help">?</button>
                 <button class="icon-btn settings-btn" id="settings-btn" title="Settings">⚙</button>
                 <input type="text" id="search-input" class="search-input" placeholder="Search... (Ctrl+F)" autocomplete="off">
                 <button class="search-clear">×</button>
@@ -344,6 +345,74 @@
             </div>
         </div>
     </div>
+
+    <!-- Help Panel -->
+    <div class="settings-overlay hidden" id="help-overlay">
+        <div class="settings-panel">
+            <div class="settings-header">
+                <span>Help</span>
+                <button class="icon-btn" id="help-close">✕</button>
+            </div>
+            <div class="settings-body">
+                <div class="settings-tabs" role="tablist" aria-label="Help sections">
+                    <button class="settings-tab active" type="button" role="tab" aria-selected="true" data-help-tab="help">Help</button>
+                    <button class="settings-tab" type="button" role="tab" aria-selected="false" data-help-tab="about">About</button>
+                </div>
+                <div class="settings-tab-panel active" role="tabpanel" data-help-panel="help">
+                    <div class="settings-section help-section">
+                        <h3>Offline Progressive Web App</h3>
+                        <div class="help-paragraph">
+                            TopoBus runs entirely in your browser. Your project files are never uploaded.
+                        </div>
+                        <div class="help-paragraph">
+                            On Chrome or Edge, TopoBus can be installed as a Progressive Web App (PWA) and used offline.
+                            Learn more: <a href="https://en.wikipedia.org/wiki/Progressive_web_app" target="_blank" rel="noreferrer">Progressive web app</a>.
+                        </div>
+                    </div>
+                    <div class="settings-section help-section">
+                        <h3>Navigation Basics</h3>
+                        <div class="help-list">
+                            <div>Left click: move objects when dragging them.</div>
+                            <div>Left drag on empty space: pan the view.</div>
+                            <div>Middle button drag: pan without selecting.</div>
+                            <div>Mouse wheel: zoom in/out (pinch on trackpad).</div>
+                            <div>Right click on an element: open the context menu.</div>
+                        </div>
+                    </div>
+                    <div class="settings-section help-section">
+                        <h3>Quick Tips</h3>
+                        <div class="help-paragraph">
+                            Blue values are clickable shortcuts (addresses, areas, lines, devices).
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-tab-panel" role="tabpanel" data-help-panel="about">
+                    <div class="settings-section help-section">
+                        <h3>About</h3>
+                        <div class="help-paragraph">
+                            <strong>This application is not affiliated with KNX Association. KNX is a registered trademark.</strong>
+                        </div>
+                        <div class="help-paragraph">
+                            <strong>KNX Association owns KNX (the world's only open standard for Home and Building Control Systems)
+                            and owns the KNX Logo, a worldwide registered trademark.</strong>
+                        </div>
+                        <div class="help-paragraph">
+                            Source code: <a href="https://github.com/Ynn/topobus" target="_blank" rel="noreferrer">github.com/Ynn/topobus</a>.
+                        </div>
+                        <div class="help-paragraph">
+                            License: AGPLv3. <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noreferrer">Read the license</a>.
+                        </div>
+                        <div class="help-paragraph">
+                            Open source libraries: JointJS (MPL 2.0) — <a href="https://github.com/clientIO/joint/blob/master/LICENSE" target="_blank" rel="noreferrer">https://github.com/clientIO/joint</a>,
+                            ELK (EPL 2.0) — <a href="https://www.eclipse.org/elk/" target="_blank" rel="noreferrer">eclipse.org/elk</a>.
+                        </div>
+                        <div class="help-paragraph">
+                            The Mocha and Latte themes are derived from <a href="https://catppuccin.com/" target="_blank" rel="noreferrer">Catppuccin</a>.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
     <script type="module" src="app.js"></script>
 </body>

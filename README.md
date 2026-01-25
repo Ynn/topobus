@@ -33,3 +33,17 @@ Open the GitHub Pages site for this repo and drop your `.knxproj` file in the pa
 Important: the online mode runs fully in your browser (WASM). The file stays on your computer; nothing is executed or uploaded on the server.
 
 If the online mode fails to load, try a modern browser and the local release.
+
+
+## About
+
+**This application is not affiliated with KNX Association. KNX is a registered trademark.**
+
+**KNX Association owns KNX (the world's only open standard for Home and Building Control Systems) and owns the KNX Logo, a worldwide registered trademark.**
+
+Main open source libraries: 
+
++ JointJS (MPL 2.0) — https://github.com/clientIO/joint, 
++ ELK (EPL 2.0) — (https://github.com/kieler/elkjs).
+
+The Mocha and Latte themes are derived from https://catppuccin.com/.
