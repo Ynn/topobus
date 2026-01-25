@@ -48,6 +48,49 @@ function resolveDeviceInfoByAddress(state, address) {
     return state.deviceIndex.get(address) || null;
 }
 
+const buildingLookupCache = { project: null, map: new Map() };
+
+function buildBuildingLookup(project) {
+    const lookup = new Map();
+    if (!project || !Array.isArray(project.locations)) return lookup;
+    const walk = (spaces, path) => {
+        spaces.forEach((space) => {
+            if (!space) return;
+            const label = space.name || space.number || space.id || '';
+            const nextPath = label ? path.concat([label]) : path;
+            const part = nextPath.join(' / ');
+            const func = space.space_type || '';
+            const devices = Array.isArray(space.devices) ? space.devices : [];
+            devices.forEach((deviceRef) => {
+                if (deviceRef && deviceRef.address) {
+                    lookup.set(deviceRef.address, {
+                        buildingPart: part,
+                        buildingFunction: func,
+                        buildingSpaceId: space.id || ''
+                    });
+                }
+            });
+            const children = Array.isArray(space.children) ? space.children : [];
+            if (children.length) {
+                walk(children, nextPath);
+            }
+        });
+    };
+    walk(project.locations, []);
+    return lookup;
+}
+
+function resolveBuildingInfo(state, address) {
+    if (!state || !state.currentProject || !address) {
+        return { buildingPart: '', buildingFunction: '', buildingSpaceId: '' };
+    }
+    if (buildingLookupCache.project !== state.currentProject) {
+        buildingLookupCache.project = state.currentProject;
+        buildingLookupCache.map = buildBuildingLookup(state.currentProject);
+    }
+    return buildingLookupCache.map.get(address) || { buildingPart: '', buildingFunction: '', buildingSpaceId: '' };
+}
+
 function resolveGroupAddressInfo(state, address) {
     const project = state && state.currentProject;
     if (!project || !Array.isArray(project.group_addresses)) return null;
@@ -139,6 +182,7 @@ function normalizeDeviceFromProps(state, props, rawDevice) {
     const address = props.address || props.individual_address || '';
     const deviceInfo = rawDevice || resolveDeviceInfoByAddress(state, address);
     const mapped = mapDeviceInfoToProps(deviceInfo);
+    const buildingInfo = resolveBuildingInfo(state, address);
     const merged = { ...props, ...mapped };
     return {
         address: merged.address || address,
@@ -166,6 +210,9 @@ function normalizeDeviceFromProps(state, props, rawDevice) {
         ip_subnet_mask: merged.ip_subnet_mask || '',
         ip_default_gateway: merged.ip_default_gateway || '',
         mac_address: merged.mac_address || '',
+        building_function: merged.building_function || buildingInfo.buildingFunction || '',
+        building_part: merged.building_part || buildingInfo.buildingPart || '',
+        building_space_id: buildingInfo.buildingSpaceId || '',
         group_links: deviceInfo && Array.isArray(deviceInfo.group_links) ? deviceInfo.group_links : (props.group_links || []),
         configuration_entries: deviceInfo && Array.isArray(deviceInfo.configuration_entries) ? deviceInfo.configuration_entries : (props.configuration_entries || []),
         configuration: deviceInfo && deviceInfo.configuration ? deviceInfo.configuration : (props.configuration || {})
@@ -377,4 +424,53 @@ export function normalizeFromTableItem(item, state) {
 
     const header = buildEntityHeader({ kind, name: data.name || '', address: data.address || '', titleFallback: 'Selection' });
     return { ...base, props: data, title: header.title, subtitle: header.subtitle };
+}
+
+export function normalizeFromTreeSelection(selection, state) {
+    if (!selection) return null;
+    const kind = canonicalKind(selection.kind || '');
+    const base = { kind, id: selection.value || selection.deviceId || selection.deviceAddress || '', source: { type: 'tree', raw: selection } };
+
+    if (kind === 'group-address') {
+        const props = normalizeGroupAddressFromProps(state, { address: selection.value || '' }, selection.label, selection.value);
+        const header = buildEntityHeader({ kind, name: props.name || selection.label, address: props.address, titleFallback: 'Group Address' });
+        return { ...base, ...props, title: header.title, subtitle: header.subtitle };
+    }
+
+    if (kind === 'device') {
+        const props = normalizeDeviceFromProps(state, { address: selection.deviceAddress || '' }, null);
+        const header = buildEntityHeader({ kind, name: props.name || selection.label, address: props.address || selection.deviceAddress, titleFallback: 'Device' });
+        return { ...base, ...props, title: header.title, subtitle: header.subtitle };
+    }
+
+    if (kind === 'area') {
+        const address = selection.area || '';
+        const header = buildEntityHeader({ kind, name: selection.label, address, titleFallback: 'Area' });
+        return { ...base, address, name: selection.label || '', description: '', comment: '', title: header.title, subtitle: header.subtitle };
+    }
+
+    if (kind === 'line') {
+        const address = selection.area && selection.line ? `${selection.area}.${selection.line}` : selection.label;
+        const header = buildEntityHeader({ kind, name: selection.label, address, titleFallback: 'Line' });
+        return { ...base, address, name: selection.label || '', description: '', comment: '', medium: '', title: header.title, subtitle: header.subtitle };
+    }
+
+    if (kind === 'segment') {
+        const address = selection.segment || selection.label || '';
+        const header = buildEntityHeader({ kind, name: selection.label, address, titleFallback: 'Segment' });
+        return { ...base, segment: selection.segment || '', name: selection.label || '', medium: '', domain: '', title: header.title, subtitle: header.subtitle };
+    }
+
+    if (kind === 'group-main' || kind === 'group-middle') {
+        const header = buildEntityHeader({ kind, name: selection.label, address: selection.value || '', titleFallback: kind === 'group-main' ? 'Main Group' : 'Middle Group' });
+        return { ...base, address: selection.value || '', name: selection.label || '', description: '', comment: '', title: header.title, subtitle: header.subtitle };
+    }
+
+    if (kind === 'building-space') {
+        const header = buildEntityHeader({ kind, name: selection.label, address: selection.spaceId || '', titleFallback: 'Building Space' });
+        return { ...base, space_type: '', name: selection.label || '', number: '', default_line: '', description: '', completion: '', title: header.title, subtitle: header.subtitle };
+    }
+
+    const header = buildEntityHeader({ kind, name: selection.label || '', address: selection.value || '', titleFallback: 'Selection' });
+    return { ...base, title: header.title, subtitle: header.subtitle, props: selection };
 }

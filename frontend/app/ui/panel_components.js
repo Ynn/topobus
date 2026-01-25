@@ -9,7 +9,7 @@ export function createSection(title) {
     return section;
 }
 
-export function addRow(section, label, value) {
+export function addRow(section, label, value, options = {}) {
     if (!section) return;
     if (value == null || value === '') return;
     const row = document.createElement('div');
@@ -22,6 +22,15 @@ export function addRow(section, label, value) {
     const valueEl = document.createElement('div');
     valueEl.className = 'panel-value';
     valueEl.textContent = String(value);
+    if (options.className) {
+        valueEl.classList.add(options.className);
+    }
+    if (options.dataset) {
+        Object.entries(options.dataset).forEach(([key, val]) => {
+            if (val == null || val === '') return;
+            valueEl.dataset[key] = String(val);
+        });
+    }
 
     row.appendChild(valueEl);
     section.appendChild(row);

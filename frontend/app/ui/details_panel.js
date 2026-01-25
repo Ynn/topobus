@@ -5,6 +5,15 @@ import { formatFlagsText, resolveDptSize } from '../formatters/device.js';
 
 const lastTabByKind = new Map();
 
+function createNavLink(label, kind, value) {
+    const link = document.createElement('span');
+    link.className = 'panel-link';
+    link.textContent = label;
+    link.dataset.navKind = kind;
+    link.dataset.navValue = value;
+    return link;
+}
+
 function resetPropertiesTabs(dom) {
     if (!dom || !dom.propertiesTabs) return;
     dom.propertiesTabs.innerHTML = '';
@@ -91,11 +100,6 @@ function renderDetailsTabs(dom, container, kind, tabs) {
     activateTab(activeIndex);
 }
 
-function resolveDatapointSize(raw) {
-    const info = resolveDatapointInfo(raw);
-    return info && info.size ? info.size : '';
-}
-
 function groupLinksByObject(links) {
     const grouped = new Map();
     links.forEach((link) => {
@@ -130,7 +134,7 @@ function groupLinksByObject(links) {
     return Array.from(grouped.values());
 }
 
-function buildGroupObjectsSection(objects, childrenCount, addressesCount) {
+function buildGroupObjectsSection(objects, childrenCount, addressesCount, options = {}) {
     const linkCount = objects.length;
     const section = createSection(`Group Objects${linkCount ? ` (${linkCount})` : ''}`);
     if (!linkCount) {
@@ -139,40 +143,75 @@ function buildGroupObjectsSection(objects, childrenCount, addressesCount) {
         return section;
     }
 
-    const list = buildPanelList();
+    const table = document.createElement('table');
+    table.className = 'panel-table';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Object</th>
+                <th>Group Address</th>
+                <th>Function</th>
+                <th>DPT</th>
+                <th>Flags</th>
+            </tr>
+        </thead>
+    `;
+    const tbody = document.createElement('tbody');
     const sortedObjects = [...objects].sort((a, b) => {
         const num = String(a.number || '').localeCompare(String(b.number || ''), undefined, { numeric: true });
         if (num !== 0) return num;
         return String(a.object_name || '').localeCompare(String(b.object_name || ''), undefined, { numeric: true });
     });
     sortedObjects.forEach((obj) => {
-        const item = document.createElement('div');
-        item.className = 'panel-item';
+        const row = document.createElement('tr');
 
-        const line1 = document.createElement('div');
-        line1.className = 'panel-item-title';
-        line1.textContent = obj.object_name || 'Group Object';
+        const numberCell = document.createElement('td');
+        numberCell.textContent = obj.number || '';
+        row.appendChild(numberCell);
 
-        const line2 = document.createElement('div');
-        line2.className = 'panel-item-meta';
+        const nameCell = document.createElement('td');
+        const nameLink = document.createElement('span');
+        nameLink.className = 'panel-link';
+        nameLink.textContent = obj.object_name || 'Group Object';
+        if (options.deviceAddress) {
+            nameLink.dataset.navKind = 'device';
+            nameLink.dataset.navValue = options.deviceAddress;
+        }
+        nameCell.appendChild(nameLink);
+        row.appendChild(nameCell);
 
-        const gaSpan = document.createElement('span');
-        gaSpan.className = 'panel-tag ga-tag';
+        const gaCell = document.createElement('td');
+        const gaList = document.createElement('div');
+        gaList.className = 'panel-link-list';
         const uniqueAddresses = [];
         obj.group_addresses.forEach((addr) => {
             if (!uniqueAddresses.includes(addr)) {
                 uniqueAddresses.push(addr);
             }
         });
-        gaSpan.textContent = uniqueAddresses.join(', ');
+        if (uniqueAddresses.length) {
+            uniqueAddresses.forEach((addr) => {
+                const gaLink = document.createElement('span');
+                gaLink.className = 'panel-link';
+                gaLink.textContent = addr;
+                gaLink.dataset.navKind = 'group-address';
+                gaLink.dataset.navValue = addr;
+                gaList.appendChild(gaLink);
+            });
+        }
+        gaCell.appendChild(gaList);
+        row.appendChild(gaCell);
 
-        const sizeValue = obj.object_size || resolveDatapointSize(obj.datapoint_type);
-        const sizeSpan = document.createElement('span');
-        sizeSpan.className = 'panel-tag';
-        sizeSpan.textContent = sizeValue || '';
+        const funcCell = document.createElement('td');
+        funcCell.textContent = obj.object_function_text || '';
+        row.appendChild(funcCell);
 
-        const flagsSpan = document.createElement('span');
-        flagsSpan.className = 'panel-item-flags';
+        const dptCell = document.createElement('td');
+        dptCell.textContent = formatDatapointType(obj.datapoint_type);
+        row.appendChild(dptCell);
+
+        const flagsCell = document.createElement('td');
         if (obj.flags) {
             const f = obj.flags;
             const active = [];
@@ -181,24 +220,16 @@ function buildGroupObjectsSection(objects, childrenCount, addressesCount) {
             if (f.write) active.push('W');
             if (f.transmit) active.push('T');
             if (f.update) active.push('U');
-            flagsSpan.textContent = active.join(' ');
+            flagsCell.textContent = active.join(' ');
         } else if (obj.flags_text) {
-            flagsSpan.textContent = obj.flags_text.replace(/I/g, '').replace(/\s+/g, ' ').trim();
+            flagsCell.textContent = obj.flags_text.replace(/I/g, '').replace(/\s+/g, ' ').trim();
         }
+        row.appendChild(flagsCell);
 
-        line2.appendChild(gaSpan);
-        if (sizeSpan.textContent) {
-            line2.appendChild(sizeSpan);
-        }
-        if (flagsSpan.textContent) {
-            line2.appendChild(flagsSpan);
-        }
-
-        item.appendChild(line1);
-        item.appendChild(line2);
-        list.appendChild(item);
+        tbody.appendChild(row);
     });
-    section.appendChild(list);
+    table.appendChild(tbody);
+    section.appendChild(table);
     return section;
 }
 
@@ -340,7 +371,10 @@ export function renderDetails(entity, container, options = {}) {
 
     if (entity.kind === 'group-address') {
         const infoSection = createSection('Group Address');
-        addRow(infoSection, 'Address', entity.address);
+        addRow(infoSection, 'Address', entity.address, {
+            className: 'panel-link',
+            dataset: { navKind: 'group-address', navValue: entity.address }
+        });
         addRow(infoSection, 'Name', entity.name);
         addRow(infoSection, 'Description', entity.description);
         addRow(infoSection, 'Comment', entity.comment);
@@ -371,7 +405,9 @@ export function renderDetails(entity, container, options = {}) {
             const sortedDevices = [...normalizedDevices].sort((a, b) => String(a.address).localeCompare(String(b.address), undefined, { numeric: true }));
             sortedDevices.forEach((device) => {
                 const item = document.createElement('div');
-                item.className = 'panel-item';
+                item.className = 'panel-item nav-target';
+                item.dataset.navKind = 'device';
+                item.dataset.navValue = device.address;
                 const title = document.createElement('div');
                 title.className = 'panel-item-title';
                 title.textContent = device.address;
@@ -400,7 +436,22 @@ export function renderDetails(entity, container, options = {}) {
     if (entity.kind === 'device') {
         const infoSection = createSection('Device Info');
         addRow(infoSection, 'Name', entity.name);
-        addRow(infoSection, 'Address', entity.address);
+        addRow(infoSection, 'Address', entity.address, {
+            className: 'panel-link',
+            dataset: { navKind: 'device', navValue: entity.address }
+        });
+        if (entity.building_function) {
+            addRow(infoSection, 'Building Function', entity.building_function, {
+                className: entity.building_space_id ? 'panel-link' : '',
+                dataset: entity.building_space_id ? { navKind: 'building-space', navValue: entity.building_space_id } : null
+            });
+        }
+        if (entity.building_part) {
+            addRow(infoSection, 'Building Part', entity.building_part, {
+                className: entity.building_space_id ? 'panel-link' : '',
+                dataset: entity.building_space_id ? { navKind: 'building-space', navValue: entity.building_space_id } : null
+            });
+        }
         addRow(infoSection, 'Manufacturer', entity.manufacturer);
         addRow(infoSection, 'Product', entity.product);
         addRow(infoSection, 'Reference', entity.product_reference);
@@ -440,7 +491,9 @@ export function renderDetails(entity, container, options = {}) {
         const links = Array.isArray(entity.group_links) ? entity.group_links : [];
         const addressList = Array.from(new Set(links.map((link) => link.group_address).filter(Boolean)));
         const groupedObjects = groupLinksByObject(links);
-        const groupObjectsSection = buildGroupObjectsSection(groupedObjects, 0, addressList.length);
+        const groupObjectsSection = buildGroupObjectsSection(groupedObjects, 0, addressList.length, {
+            deviceAddress: entity.address || ''
+        });
 
         const configEntries = extractConfigEntries(entity);
         const paramsSection = buildParametersSection(configEntries);
@@ -472,7 +525,13 @@ export function renderDetails(entity, container, options = {}) {
         addRow(infoSection, 'Description', entity.description);
         addRow(infoSection, 'Comment', entity.comment);
         if (entity.group_addresses && entity.group_addresses.length) {
-            addRow(infoSection, 'Group Addresses', entity.group_addresses.join(', '));
+            const list = document.createElement('div');
+            list.className = 'panel-link-list';
+            entity.group_addresses.forEach((address) => {
+                if (!address) return;
+                list.appendChild(createNavLink(address, 'group-address', address));
+            });
+            addRowNode(infoSection, 'Group Addresses', list);
         }
 
         const settingsSection = createSection('Settings');
@@ -523,7 +582,11 @@ export function renderDetails(entity, container, options = {}) {
             tabs.push({ key: 'parent', label: 'Parent', icon: ICON.link, content: [linkSection] });
         } else if (entity.device) {
             const linkSection = createSection('Device');
-            addRow(linkSection, 'Address', entity.device.properties ? entity.device.properties.address : entity.device.individual_address);
+            const deviceAddress = entity.device.properties ? entity.device.properties.address : entity.device.individual_address;
+            addRow(linkSection, 'Address', deviceAddress, {
+                className: 'panel-link',
+                dataset: { navKind: 'device', navValue: deviceAddress }
+            });
             addRow(linkSection, 'Name', entity.device.properties ? entity.device.properties.name : entity.device.name);
             tabs.push({ key: 'device', label: 'Device', icon: ICON.link, content: [linkSection] });
         }

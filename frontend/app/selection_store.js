@@ -1,8 +1,9 @@
 import { state } from './state.js';
-import { normalizeFromGraphCell, normalizeFromTableItem } from './entities/normalize.js';
+import { normalizeFromGraphCell, normalizeFromTableItem, normalizeFromTreeSelection } from './entities/normalize.js';
 
 const selectionListeners = new Set();
 let currentSelection = null;
+let lastTreeSelection = null;
 
 function notify(selection) {
     selectionListeners.forEach((listener) => {
@@ -36,7 +37,12 @@ export function clearSelection() {
 
 export function setSelectionFromGraph(cell) {
     if (!cell) {
-        clearSelection();
+        if (lastTreeSelection) {
+            currentSelection = lastTreeSelection;
+            notify(currentSelection);
+        } else {
+            clearSelection();
+        }
         return;
     }
     const entity = normalizeFromGraphCell(cell, state);
@@ -48,12 +54,31 @@ export function setSelectionFromGraph(cell) {
 
 export function setSelectionFromTable(item) {
     if (!item) {
-        clearSelection();
+        if (lastTreeSelection) {
+            currentSelection = lastTreeSelection;
+            notify(currentSelection);
+        } else {
+            clearSelection();
+        }
         return;
     }
     const entity = normalizeFromTableItem(item, state);
     currentSelection = entity
         ? { kind: entity.kind, id: entity.id || '', address: entity.address || '', entity, source: 'table' }
         : null;
+    notify(currentSelection);
+}
+
+export function setSelectionFromTree(selection) {
+    if (!selection) {
+        lastTreeSelection = null;
+        clearSelection();
+        return;
+    }
+    const entity = normalizeFromTreeSelection(selection, state);
+    currentSelection = entity
+        ? { kind: entity.kind, id: entity.id || '', address: entity.address || '', entity, source: 'tree' }
+        : null;
+    lastTreeSelection = currentSelection;
     notify(currentSelection);
 }

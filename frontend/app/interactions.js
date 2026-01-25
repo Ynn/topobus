@@ -6,6 +6,9 @@ import { selectCell, clearSelection } from './selection.js';
 import { readTheme } from './theme.js';
 import { rebuildSelectionIndex } from './graph/styles.js';
 import { stateManager } from './state_manager.js';
+import { normalizeFromGraphCell } from './entities/normalize.js';
+import { initContextMenu, openContextMenu, copyTextToClipboard, openWebSearch } from './context_menu.js';
+import { requestNavigation } from './navigation.js';
 
 export function bindInteractions() {
     const { paper } = state;
@@ -30,6 +33,14 @@ export function bindInteractions() {
 
     paper.on('element:pointerup', () => {
         paper.el.classList.remove('is-dragging');
+    });
+
+    paper.on('element:contextmenu', (elementView, event) => {
+        if (!elementView || !event) return;
+        event.preventDefault();
+        const cell = elementView.model;
+        if (!cell) return;
+        openGraphContextMenu(cell, event.clientX, event.clientY);
     });
 
     const dom = getDom();
@@ -186,6 +197,55 @@ export function bindInteractions() {
         stateManager.setState('interactionsBound', true);
     }
 
+}
+
+function openGraphContextMenu(cell, x, y) {
+    initContextMenu();
+    const entity = normalizeFromGraphCell(cell, state);
+    if (!entity) return;
+    const items = [];
+    const label = entity.title || entity.address || entity.name || '';
+    if (label) {
+        items.push({
+            label: `Copy "${label.length > 32 ? `${label.slice(0, 32)}…` : label}"`,
+            action: () => copyTextToClipboard(label)
+        });
+        items.push({
+            label: 'Search on the web',
+            action: () => openWebSearch(label)
+        });
+    }
+
+    const navItems = [];
+    if (entity.kind === 'group-address' && entity.address) {
+        navItems.push({ label: 'Open Group Address', action: () => requestNavigation({ type: 'group-address', address: entity.address }) });
+    } else if (entity.kind === 'device' && entity.address) {
+        navItems.push({ label: 'Open Device (Topology)', action: () => requestNavigation({ type: 'device', address: entity.address }) });
+    } else if (entity.kind === 'group-object') {
+        let deviceAddress = '';
+        const parentId = cell.get ? cell.get('parent') : null;
+        if (parentId && state.graph) {
+            const parentCell = state.graph.getCell(parentId);
+            if (parentCell) {
+                deviceAddress = parentCell.get('fullAddress') || parentCell.get('address') || '';
+            }
+        }
+        if (deviceAddress) {
+            navItems.push({ label: 'Open Device (Topology)', action: () => requestNavigation({ type: 'device', address: deviceAddress }) });
+        }
+        const groupAddress = entity.address || '';
+        if (groupAddress) {
+            navItems.push({ label: `Open Group Address (${groupAddress})`, action: () => requestNavigation({ type: 'group-address', address: groupAddress }) });
+        }
+    }
+
+    if (navItems.length) {
+        items.push({ type: 'separator' });
+        items.push(...navItems);
+    }
+
+    if (!items.length) return;
+    openContextMenu(items, { x, y });
 }
 
 export function focusCell(cell) {

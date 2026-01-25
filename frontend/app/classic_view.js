@@ -4,10 +4,12 @@ import { applyFiltersAndRender } from './filters.js';
 import { formatDeviceName } from './utils.js';
 import { selectCell, highlightCell, registerSelectionListener } from './selection.js';
 import { focusCell, fitContent, exportSvg } from './interactions.js';
-import { setSelectionFromTable } from './selection_store.js';
+import { setSelectionFromTable, setSelectionFromTree } from './selection_store.js';
 import { ICON } from './ui/icons.js';
 import { formatDptLabel, resolveDptSize } from './formatters/device.js';
 import { stateManager } from './state_manager.js';
+import { initContextMenu, openContextMenu, copyTextToClipboard, openWebSearch } from './context_menu.js';
+import { onNavigate, requestNavigation } from './navigation.js';
 
 // View metadata and table layouts.
 const viewConstants = {
@@ -121,6 +123,8 @@ export function initClassicView() {
 
     initializeResizers();
     initializeTableSorting();
+    initContextMenu();
+    registerNavigationHandlers();
 }
 
 export function updateClassicView() {
@@ -140,9 +144,16 @@ function bindDelegatedEvents() {
 
     if (dom.sidebarTree && dom.sidebarTree.dataset.bound !== 'true') {
         dom.sidebarTree.addEventListener('click', (e) => {
-            const item = e.target.closest('.tree-item');
+            const base = e.target instanceof Element ? e.target : e.target && e.target.parentElement ? e.target.parentElement : null;
+            const item = base ? base.closest('.tree-item') : null;
             if (!item || !dom.sidebarTree.contains(item)) return;
             handleTreeItemClick(e, item);
+        });
+        dom.sidebarTree.addEventListener('contextmenu', (e) => {
+            const base = e.target instanceof Element ? e.target : e.target && e.target.parentElement ? e.target.parentElement : null;
+            const item = base ? base.closest('.tree-item') : null;
+            if (!item || !dom.sidebarTree.contains(item)) return;
+            handleTreeContextMenu(e, item);
         });
         dom.sidebarTree.dataset.bound = 'true';
     }
@@ -151,7 +162,12 @@ function bindDelegatedEvents() {
         dom.tableBody.addEventListener('click', (e) => {
             const row = e.target.closest('tr');
             if (!row || !dom.tableBody.contains(row)) return;
-            handleTableRowClick(row);
+            handleTableRowClick(row, e);
+        });
+        dom.tableBody.addEventListener('contextmenu', (e) => {
+            const row = e.target.closest('tr');
+            if (!row || !dom.tableBody.contains(row)) return;
+            handleTableContextMenu(e, row);
         });
         dom.tableBody.dataset.bound = 'true';
     }
@@ -208,6 +224,7 @@ function switchViewType(viewType, force = false) {
     // 5. Update Breadcrumbs (if we had them)
     // 6. Reset selection
     stateManager.setState('selectedId', null);
+    setSelectionFromTree(null);
     setSelectionFromTable(null); // Clear properties
 
     updateGraphModeVisibility();
@@ -960,10 +977,14 @@ function buildTopologyGroupObjectRows(device) {
         });
         const addressesLabel = addresses.join(', ');
         const size = entry.size || resolveDptSize(entry.type);
+        const buildingInfo = resolveBuildingInfo(device.individual_address);
         return {
             id: `${device.instance_id || device.individual_address}-${entry.number || entry.index}`,
             icon: ICON.object,
             kind: 'group-object',
+            meta: {
+                buildingSpaceId: buildingInfo.buildingSpaceId || ''
+            },
             data: {
                 number: entry.number || '',
                 object: entry.object || '',
@@ -972,8 +993,8 @@ function buildTopologyGroupObjectRows(device) {
                 desc: entry.desc || '',
                 channel: entry.channel || '',
                 security: entry.security || '',
-                buildingFunction: entry.buildingFunction || '',
-                buildingPart: entry.buildingPart || '',
+                buildingFunction: entry.buildingFunction || buildingInfo.buildingFunction || '',
+                buildingPart: entry.buildingPart || buildingInfo.buildingPart || '',
                 type: formatDptLabel(entry.type),
                 size,
                 ...buildFlagColumns(entry.flags)
@@ -1089,7 +1110,11 @@ function getBuildingLookup() {
             const devices = Array.isArray(space.devices) ? space.devices : [];
             devices.forEach((deviceRef) => {
                 if (deviceRef && deviceRef.address) {
-                    lookup.set(deviceRef.address, { buildingPart: part, buildingFunction: func });
+                    lookup.set(deviceRef.address, {
+                        buildingPart: part,
+                        buildingFunction: func,
+                        buildingSpaceId: space.id || ''
+                    });
                 }
             });
 
@@ -1107,9 +1132,9 @@ function getBuildingLookup() {
 }
 
 function resolveBuildingInfo(address) {
-    if (!address) return { buildingPart: '', buildingFunction: '' };
+    if (!address) return { buildingPart: '', buildingFunction: '', buildingSpaceId: '' };
     const lookup = getBuildingLookup();
-    return lookup.get(address) || { buildingPart: '', buildingFunction: '' };
+    return lookup.get(address) || { buildingPart: '', buildingFunction: '', buildingSpaceId: '' };
 }
 
 function splitGroupAddress(address) {
@@ -1239,13 +1264,8 @@ function renderTreeNodes(nodes, depth = 0) {
     }).join('');
 }
 
-function handleTreeItemClick(e, item) {
-    e.stopPropagation();
-    const hasChildren = item.dataset.hasChildren === 'true';
-    const isExpanded = item.dataset.expanded === 'true';
-    const nodeId = item.dataset.nodeId;
-
-    // Selection logic
+function applyTreeSelection(item, options = {}) {
+    if (!item) return;
     if (selectedTreeItem && selectedTreeItem !== item) {
         selectedTreeItem.classList.remove('selected');
     }
@@ -1253,17 +1273,26 @@ function handleTreeItemClick(e, item) {
     selectedTreeItem = item;
 
     const selection = buildTreeSelection(item);
-
-    // Update Graph Filters
+    setSelectionFromTree(selection);
     updateGraphFiltersFromSelection(selection);
-
     filterTableByTreeSelection(selection);
 
-    // Refresh Graph if visible
     const dom = getDom();
     if (dom.graphView.style.display !== 'none') {
         applyFiltersAndRender();
     }
+    if (options.scrollIntoView) {
+        item.scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function handleTreeItemClick(e, item) {
+    e.stopPropagation();
+    const hasChildren = item.dataset.hasChildren === 'true';
+    const isExpanded = item.dataset.expanded === 'true';
+    const nodeId = item.dataset.nodeId;
+
+    applyTreeSelection(item);
 
     // Expansion logic
     const wantsToggle = Boolean(e.target.closest('.expand-icon')) || e.detail >= 2;
@@ -1295,6 +1324,38 @@ function buildTreeSelection(item) {
         deviceAddress: item.dataset.deviceAddress || '',
         deviceId: item.dataset.deviceId || ''
     };
+}
+
+function handleTreeContextMenu(event, item) {
+    const selection = buildTreeSelection(item);
+    const label = selection.label || selection.value || '';
+    const items = [];
+    if (label) {
+        items.push({
+            label: `Copy "${label.length > 32 ? `${label.slice(0, 32)}…` : label}"`,
+            action: () => copyTextToClipboard(label)
+        });
+        items.push({
+            label: 'Search on the web',
+            action: () => openWebSearch(label)
+        });
+    }
+
+    const navItems = [];
+    if (selection.kind === 'group-address' && selection.value) {
+        navItems.push({ label: 'Open Group Address', action: () => requestNavigation({ type: 'group-address', address: selection.value }) });
+    } else if (selection.kind === 'device' && selection.deviceAddress) {
+        navItems.push({ label: 'Open Device (Topology)', action: () => requestNavigation({ type: 'device', address: selection.deviceAddress }) });
+    }
+
+    if (navItems.length) {
+        items.push({ type: 'separator' });
+        items.push(...navItems);
+    }
+
+    if (!items.length) return;
+    event.preventDefault();
+    openContextMenu(items, { x: event.clientX, y: event.clientY });
 }
 
 function materializeLazyChildren(item, container) {
@@ -1555,6 +1616,9 @@ function buildGroupAddressObjectRows(address) {
             icon: ICON.object,
             kind: 'group-object',
             graphId: obj.id || '',
+            meta: {
+                buildingSpaceId: buildingInfo.buildingSpaceId || ''
+            },
             data: {
                 number: props.number != null ? String(props.number) : '',
                 object: props.object_name || props.object_name_raw || '',
@@ -1776,12 +1840,69 @@ function buildTableRow(row, index) {
     const data = row.data || {};
     const keys = tableColumnKeys.length ? tableColumnKeys : Object.keys(data);
     const cells = keys.map((key) => data[key]);
-    cells.forEach((value) => {
+    cells.forEach((value, idx) => {
+        const key = keys[idx];
         const td = document.createElement('td');
         td.textContent = value == null ? '' : String(value);
+        if (key) {
+            td.dataset.field = key;
+        }
+        if (value != null && value !== '') {
+            td.dataset.value = String(value);
+        }
+        applyTableCellNavigation(row, key, value, td);
         tr.appendChild(td);
     });
     return tr;
+}
+
+function applyTableCellNavigation(row, key, value, cell) {
+    if (!row || !cell || !key) return;
+    let navKind = '';
+    let navValue = '';
+    if (row.kind === 'group-address' && key === 'address') {
+        navKind = 'group-address';
+        navValue = String(value || '');
+    } else if (row.kind === 'device' && key === 'address') {
+        navKind = 'device';
+        navValue = String(value || '');
+    } else if (row.kind === 'group-object') {
+        if (key === 'deviceAddress') {
+            navKind = 'device';
+            navValue = String(value || '');
+        } else if (key === 'group') {
+            navKind = 'group-address';
+            navValue = normalizeGroupAddress(resolveFirstGroupAddress(value));
+        }
+    }
+    if (!navKind && (key === 'buildingFunction' || key === 'buildingPart')) {
+        const spaceId = row.meta && row.meta.buildingSpaceId ? row.meta.buildingSpaceId : '';
+        if (spaceId) {
+            navKind = 'building-space';
+            navValue = spaceId;
+        }
+    }
+
+    if (!navKind || !navValue) return;
+    cell.dataset.navKind = navKind;
+    cell.dataset.navValue = navValue;
+    cell.classList.add('table-cell-nav');
+}
+
+function resolveFirstGroupAddress(value) {
+    if (!value) return '';
+    const str = String(value);
+    if (!str) return '';
+    if (!str.includes(',')) return str.trim();
+    return str.split(',')[0].trim();
+}
+
+function normalizeGroupAddress(value) {
+    if (!value) return '';
+    const str = String(value).trim();
+    if (!str) return '';
+    const match = str.match(/(\d{1,3}\/\d{1,3}(?:\/\d{1,3})?)/);
+    return match ? match[1] : str;
 }
 
 function applyTableSearch(rows) {
@@ -1854,8 +1975,73 @@ function compareTableValues(a, b) {
     return aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-function handleTableRowClick(row) {
+function resolveNavigationTargetFromTable(event) {
+    if (!event) return null;
+    const base = event.target instanceof Element ? event.target : event.target && event.target.parentElement ? event.target.parentElement : null;
+    if (!base) return null;
+    const cell = base.closest('td');
+    if (!cell) return null;
+    const kind = cell.dataset.navKind || '';
+    let value = cell.dataset.navValue || '';
+    if (!kind || !value) return null;
+    if (kind === 'group-address') {
+        value = normalizeGroupAddress(value);
+        if (!value) return null;
+    }
+    return { type: kind, address: value };
+}
+
+function extractGroupAddressesFromRow(row) {
+    if (!row) return [];
+    const addresses = [];
+    const dataGroup = row.data && row.data.group ? String(row.data.group) : '';
+    if (dataGroup) {
+        dataGroup.split(',').forEach((part) => {
+            const trimmed = part.trim();
+            if (trimmed && !addresses.includes(trimmed)) {
+                addresses.push(trimmed);
+            }
+        });
+    }
+    const rawLinks = row.raw && Array.isArray(row.raw.links) ? row.raw.links : [];
+    rawLinks.forEach((link) => {
+        if (link && link.group_address && !addresses.includes(link.group_address)) {
+            addresses.push(link.group_address);
+        }
+    });
+    const rawLink = row.raw && row.raw.link ? row.raw.link : null;
+    if (rawLink && rawLink.group_address && !addresses.includes(rawLink.group_address)) {
+        addresses.push(rawLink.group_address);
+    }
+    const nodeProps = row.raw && row.raw.node && row.raw.node.properties ? row.raw.node.properties : null;
+    if (nodeProps && nodeProps.group_address && !addresses.includes(nodeProps.group_address)) {
+        addresses.push(nodeProps.group_address);
+    }
+    return addresses;
+}
+
+function extractDeviceAddressFromRow(row) {
+    if (!row) return '';
+    if (row.data && row.data.deviceAddress) return String(row.data.deviceAddress || '');
+    if (row.data && row.data.address && row.kind === 'device') return String(row.data.address || '');
+    const rawDevice = row.raw && row.raw.device ? row.raw.device : null;
+    if (rawDevice && rawDevice.individual_address) return rawDevice.individual_address;
+    if (row.raw && row.raw.node && row.raw.node.parent_id && state && state.currentNodeIndex) {
+        const parent = state.currentNodeIndex.get(row.raw.node.parent_id);
+        if (parent && parent.properties && parent.properties.address) {
+            return parent.properties.address;
+        }
+    }
+    return '';
+}
+
+function handleTableRowClick(row, event) {
     if (!row || !row.dataset.id) return;
+    const navTarget = resolveNavigationTargetFromTable(event);
+    if (navTarget) {
+        requestNavigation(navTarget);
+        return;
+    }
     const item = tableRowIndex.get(row.dataset.id);
     if (!item) return;
     if (selectedTableRow && selectedTableRow !== row) {
@@ -1864,6 +2050,56 @@ function handleTableRowClick(row) {
     row.classList.add('selected-row');
     selectedTableRow = row;
     selectTableItem(item);
+}
+
+function handleTableContextMenu(event, rowEl) {
+    const item = rowEl && rowEl.dataset.id ? tableRowIndex.get(rowEl.dataset.id) : null;
+    if (!item) return;
+    const base = event.target instanceof Element ? event.target : event.target && event.target.parentElement ? event.target.parentElement : null;
+    const cell = base ? base.closest('td') : null;
+    const cellText = cell ? String(cell.textContent || '').trim() : '';
+    const items = [];
+
+    if (cellText) {
+        items.push({
+            label: `Copy "${cellText.length > 32 ? `${cellText.slice(0, 32)}…` : cellText}"`,
+            action: () => copyTextToClipboard(cellText)
+        });
+        items.push({
+            label: 'Search on the web',
+            action: () => openWebSearch(cellText)
+        });
+    }
+
+    const navItems = [];
+    if (item.kind === 'group-address' && item.data && item.data.address) {
+        navItems.push({ label: 'Open Group Address', action: () => requestNavigation({ type: 'group-address', address: item.data.address }) });
+    } else if (item.kind === 'device') {
+        const deviceAddress = item.data && item.data.address ? item.data.address : extractDeviceAddressFromRow(item);
+        if (deviceAddress) {
+            navItems.push({ label: 'Open Device (Topology)', action: () => requestNavigation({ type: 'device', address: deviceAddress }) });
+        }
+    } else if (item.kind === 'group-object') {
+        const deviceAddress = extractDeviceAddressFromRow(item);
+        if (deviceAddress) {
+            navItems.push({ label: 'Open Device (Topology)', action: () => requestNavigation({ type: 'device', address: deviceAddress }) });
+        }
+        const addresses = extractGroupAddressesFromRow(item);
+        addresses.slice(0, 4).forEach((address) => {
+            const normalized = normalizeGroupAddress(address);
+            if (!normalized) return;
+            navItems.push({ label: `Open Group Address (${normalized})`, action: () => requestNavigation({ type: 'group-address', address: normalized }) });
+        });
+    }
+
+    if (navItems.length) {
+        items.push({ type: 'separator' });
+        items.push(...navItems);
+    }
+
+    if (!items.length) return;
+    event.preventDefault();
+    openContextMenu(items, { x: event.clientX, y: event.clientY });
 }
 
 function syncTableSelectionFromGraph(cell) {
@@ -1939,6 +2175,191 @@ function resolveGraphCell(item) {
     const graphId = item.graphId || resolveGraphIdFromRow(item);
     if (!graphId) return null;
     return state.graph.getCell(graphId) || null;
+}
+
+// ----------------------------------------------------------------------
+// NAVIGATION
+// ----------------------------------------------------------------------
+
+let navigationBound = false;
+
+function registerNavigationHandlers() {
+    if (navigationBound) return;
+    navigationBound = true;
+    const handler = (detail) => {
+        if (!detail || !detail.type) return;
+        if (detail.type === 'group-address') {
+            navigateToGroupAddress(detail.address || '');
+        } else if (detail.type === 'device') {
+            navigateToDevice(detail.address || '');
+        } else if (detail.type === 'group-object') {
+            navigateToGroupObject(detail);
+        } else if (detail.type === 'building-space') {
+            navigateToBuildingSpace(detail.address || detail.spaceId || '');
+        }
+    };
+    onNavigate(handler);
+    if (typeof globalThis !== 'undefined') {
+        globalThis.topobusNavigate = handler;
+    }
+}
+
+function navigateToGroupAddress(address) {
+    const normalized = normalizeGroupAddress(address);
+    if (!normalized) return;
+    switchViewType('group', true);
+    switchContentTab('table');
+    const attempt = () => {
+        const treeItem = findTreeItemBySelector(buildTreeSelector('group-address', normalized), normalized);
+        if (treeItem) {
+            applyTreeSelection(treeItem, { scrollIntoView: true });
+            return true;
+        }
+        const row = findTableRow((item) => {
+            if (item.kind !== 'group-address' || !item.data || !item.data.address) return false;
+            return normalizeGroupAddress(item.data.address) === normalized;
+        });
+        if (row) {
+            selectTableRowByItem(row);
+            return true;
+        }
+        return false;
+    };
+    if (attempt()) return;
+    requestAnimationFrame(() => {
+        if (attempt()) return;
+        setTimeout(attempt, 50);
+    });
+}
+
+function navigateToDevice(address, options = {}) {
+    if (!address) return;
+    switchViewType('topology', true);
+    const attempt = () => {
+        const treeItem = findTreeItemBySelector(buildTreeSelector('device', address), null);
+        if (treeItem) {
+            applyTreeSelection(treeItem, { scrollIntoView: true });
+        }
+        if (options.selectObject) {
+            selectGroupObjectInTable(options.selectObject);
+        }
+        return Boolean(treeItem);
+    };
+    if (attempt()) return;
+    requestAnimationFrame(() => {
+        if (attempt()) return;
+        setTimeout(attempt, 50);
+    });
+}
+
+function navigateToGroupObject(detail) {
+    const deviceAddress = detail.deviceAddress || detail.address || '';
+    const number = detail.number || '';
+    const groupAddress = detail.groupAddress || '';
+    if (deviceAddress) {
+        navigateToDevice(deviceAddress, { selectObject: { number, groupAddress } });
+        return;
+    }
+    if (groupAddress) {
+        navigateToGroupAddress(groupAddress);
+    }
+}
+
+function navigateToBuildingSpace(spaceId) {
+    if (!spaceId) return;
+    switchViewType('buildings', true);
+    switchContentTab('table');
+    const selector = buildTreeSelector('building-space', spaceId);
+    const attempt = () => {
+        const treeItem = findTreeItemBySelector(selector, null);
+        if (treeItem) {
+            applyTreeSelection(treeItem, { scrollIntoView: true });
+            return true;
+        }
+        return false;
+    };
+    if (attempt()) return;
+    requestAnimationFrame(() => {
+        if (attempt()) return;
+        setTimeout(attempt, 50);
+    });
+}
+
+function selectGroupObjectInTable(criteria) {
+    if (!criteria) return;
+    const number = criteria.number ? String(criteria.number) : '';
+    const groupAddress = criteria.groupAddress || '';
+    const row = findTableRow((item) => {
+        if (item.kind !== 'group-object') return false;
+        if (number && String(item.data && item.data.number ? item.data.number : '') === number) return true;
+        if (groupAddress) {
+            const addresses = extractGroupAddressesFromRow(item);
+            return addresses.includes(groupAddress);
+        }
+        return false;
+    });
+    if (row) {
+        selectTableRowByItem(row);
+    }
+}
+
+function findTableRow(predicate) {
+    if (!predicate) return null;
+    const rows = Array.isArray(tableSourceData) ? tableSourceData : [];
+    return rows.find((item) => predicate(item)) || null;
+}
+
+function selectTableRowByItem(item) {
+    if (!item) return;
+    const dom = getDom();
+    if (!dom || !dom.tableBody) return;
+    if (tableVirtualMode && dom.tableView) {
+        ensureRowVisible(item.id, dom.tableView);
+        renderVirtualTable(true);
+    }
+    const rowEl = dom.tableBody.querySelector(`tr[data-id="${item.id}"]`);
+    if (rowEl) {
+        if (selectedTableRow && selectedTableRow !== rowEl) {
+            selectedTableRow.classList.remove('selected-row');
+        }
+        rowEl.classList.add('selected-row');
+        selectedTableRow = rowEl;
+        if (dom.tableView && !tableVirtualMode) {
+            rowEl.scrollIntoView({ block: 'nearest' });
+        }
+    }
+    selectTableItem(item);
+}
+
+function buildTreeSelector(kind, value) {
+    const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/"/g, '\\"');
+    if (kind === 'group-address') {
+        return `.tree-item[data-kind="group-address"][data-value="${escaped}"]`;
+    }
+    if (kind === 'device') {
+        return `.tree-item[data-kind="device"][data-device-address="${escaped}"]`;
+    }
+    if (kind === 'building-space') {
+        return `.tree-item[data-kind="building-space"][data-space-id="${escaped}"]`;
+    }
+    return '';
+}
+
+function findTreeItemBySelector(selector, groupAddress) {
+    if (!selector) return null;
+    const dom = getDom();
+    if (!dom || !dom.sidebarTree) return null;
+    let item = dom.sidebarTree.querySelector(selector);
+    if (!item) {
+        expandTree(true);
+        item = dom.sidebarTree.querySelector(selector);
+    }
+    if (!item && groupAddress) {
+        const items = Array.from(dom.sidebarTree.querySelectorAll('.tree-item[data-kind="group-address"]'));
+        const normalizedTarget = normalizeGroupAddress(groupAddress);
+        item = items.find((node) => normalizeGroupAddress(node.dataset.value || '') === normalizedTarget) || null;
+    }
+    return item;
 }
 
 // ----------------------------------------------------------------------

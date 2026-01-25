@@ -1287,6 +1287,72 @@ tr.table-spacer td {
     text-decoration: underline;
 }
 
+.panel-link-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+}
+
+.panel-item.nav-target {
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.panel-item.nav-target:hover {
+    border-color: var(--primary-blue);
+    background: var(--hover-bg);
+}
+
+.table-cell-nav {
+    color: var(--primary-blue);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.context-menu {
+    position: fixed;
+    z-index: 10000;
+    min-width: 200px;
+    background: var(--bg-white);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: var(--shadow-lg);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.context-menu.hidden {
+    display: none;
+}
+
+.context-menu-item {
+    text-align: left;
+    border: none;
+    background: transparent;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.context-menu-item:hover {
+    background: var(--hover-bg);
+}
+
+.context-menu-item:disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+}
+
+.context-menu-separator {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 2px;
+}
+
 
 /* Utility Classes */
 .icon {
