@@ -31,6 +31,7 @@ export const state = {
     graphLoadingActive: false,
     graphBounds: null,
     graphBoundsDirty: true,
+    graphResetView: false,
     filteredProject: null,
     filters: {
         area: 'all',

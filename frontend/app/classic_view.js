@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { applyFiltersAndRender } from './filters.js';
 import { formatDeviceName } from './utils.js';
 import { selectCell, highlightCell, registerSelectionListener } from './selection.js';
-import { focusCell, fitContent, exportSvg } from './interactions.js';
+import { focusCell, fitContent, exportSvg, ensureDeviceVisible } from './interactions.js';
 import { setSelectionFromTable, setSelectionFromTree } from './selection_store.js';
 import { ICON } from './ui/icons.js';
 import { formatDptLabel, resolveDptSize } from './formatters/device.js';
@@ -258,10 +258,20 @@ function switchContentTab(tabName) {
         // Trigger graph rendering if needed
         setTimeout(() => {
             applyFiltersAndRender();
+            scheduleGraphReveal();
         }, 50);
     }
 
     updateGraphModeVisibility();
+}
+
+function scheduleGraphReveal() {
+    const attempt = (force = false) => {
+        ensureDeviceVisible({ force });
+    };
+    requestAnimationFrame(() => attempt(false));
+    setTimeout(() => attempt(false), 120);
+    setTimeout(() => attempt(true), 420);
 }
 
 function setGroupGraphMode(mode) {

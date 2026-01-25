@@ -6,7 +6,7 @@ import { layoutGroupView, layoutTopologyView, alignGroupLinks, normalizeContaine
 import { renderCompositeGraph } from './composite.js';
 import { renderBuildingGraph } from './building.js';
 import { updateLinkStyles, zForElement, rebuildSelectionIndex } from './styles.js';
-import { bindInteractions, fitContent, syncPaperToContent, updateZoomLOD } from '../interactions.js';
+import { bindInteractions, fitContent, syncPaperToContent, updateZoomLOD, ensureGraphVisible, ensureDeviceVisible } from '../interactions.js';
 import { clearSelection } from '../selection.js';
 import { scheduleMinimap, setMinimapEnabled } from '../minimap.js';
 import { startGraphLoading, stopGraphLoading } from './loading.js';
@@ -16,6 +16,7 @@ import { DeviceGraphBuilder } from './device_graph_builder.js';
 import { stateManager } from '../state_manager.js';
 
 const deviceGraphBuilder = new DeviceGraphBuilder();
+let autoFitToken = 0;
 
 stateManager.subscribe('currentProject', () => {
     if (state.deviceGraphCache instanceof GraphCache) {
@@ -24,6 +25,8 @@ stateManager.subscribe('currentProject', () => {
 });
 
 export function renderGraph(projectData, viewType) {
+    const resetView = state.graphResetView === true;
+    stateManager.setState('graphResetView', false);
     const isBuilding = viewType === 'building';
     const isDevice = viewType === 'device';
     const graphData = isBuilding
@@ -187,10 +190,12 @@ export function renderGraph(projectData, viewType) {
         rebuildSelectionIndex();
         clearSelection();
         syncPaperToContent({
-            resetView: state.isLargeGraph
+            resetView: resetView || state.isLargeGraph
         });
-        if (!state.isLargeGraph) {
+        if (!state.isLargeGraph || resetView) {
             fitContent();
+        } else {
+            scheduleAutoFit();
         }
         scheduleMinimap();
         stopGraphLoading();
@@ -207,10 +212,12 @@ export function renderGraph(projectData, viewType) {
         rebuildSelectionIndex();
         clearSelection();
         syncPaperToContent({
-            resetView: state.isLargeGraph
+            resetView: resetView || state.isLargeGraph
         });
-        if (!state.isLargeGraph) {
+        if (!state.isLargeGraph || resetView) {
             fitContent();
+        } else {
+            scheduleAutoFit();
         }
         scheduleMinimap();
         stopGraphLoading();
@@ -273,14 +280,29 @@ export function renderGraph(projectData, viewType) {
     clearSelection();
 
     syncPaperToContent({
-        resetView: state.isLargeGraph
+        resetView: resetView || state.isLargeGraph
     });
-    if (!state.isLargeGraph) {
+    if (!state.isLargeGraph || resetView) {
         fitContent();
+    } else {
+        scheduleAutoFit();
     }
     updateZoomLOD();
     scheduleMinimap();
     stopGraphLoading();
+}
+
+function scheduleAutoFit() {
+    const token = ++autoFitToken;
+    const run = (force = false) => {
+        if (token !== autoFitToken) return;
+        if (!ensureDeviceVisible({ force })) {
+            ensureGraphVisible({ force });
+        }
+    };
+    requestAnimationFrame(() => run(false));
+    setTimeout(() => run(false), 180);
+    setTimeout(() => run(true), 600);
 }
 
 function filterGroupViewNodes(nodes) {

@@ -717,6 +717,74 @@ export function fitContent() {
     scheduleMinimap();
 }
 
+export function ensureGraphVisible(options = {}) {
+    const { paper, graph } = state;
+    const dom = getDom();
+    if (!paper || !graph || !dom) return false;
+    const elements = graph.getElements();
+    if (!elements.length) return false;
+    const bounds = getGraphBounds(elements);
+    if (!bounds) return false;
+    const container = dom.paperContainer || dom.paper;
+    if (!container) return false;
+    const width = container.clientWidth || 0;
+    const height = container.clientHeight || 0;
+    if (!width || !height) return false;
+    const scale = paper.scale().sx || 1;
+    const translate = paper.translate();
+    const viewLeft = -translate.tx / scale;
+    const viewTop = -translate.ty / scale;
+    const viewRight = viewLeft + width / scale;
+    const viewBottom = viewTop + height / scale;
+    const padding = Number.isFinite(options.padding) ? options.padding : 40;
+    const boundsLeft = bounds.x;
+    const boundsTop = bounds.y;
+    const boundsRight = bounds.x + bounds.width;
+    const boundsBottom = bounds.y + bounds.height;
+    const intersects = !(boundsRight < viewLeft + padding ||
+        boundsLeft > viewRight - padding ||
+        boundsBottom < viewTop + padding ||
+        boundsTop > viewBottom - padding);
+    const tooLarge = bounds.width > (width / scale) * 1.2 || bounds.height > (height / scale) * 1.2;
+    if (!intersects || tooLarge || options.force === true) {
+        fitContent();
+        return true;
+    }
+    return false;
+}
+
+export function ensureDeviceVisible(options = {}) {
+    const { paper, graph } = state;
+    const dom = getDom();
+    if (!paper || !graph || !dom) return false;
+    const elements = graph.getElements().filter((el) => el.get('kind') === 'device');
+    if (!elements.length) return false;
+    const container = dom.paperContainer || dom.paper;
+    if (!container) return false;
+    const width = container.clientWidth || 0;
+    const height = container.clientHeight || 0;
+    if (!width || !height) return false;
+    const scale = paper.scale().sx || 1;
+    const translate = paper.translate();
+    const viewLeft = -translate.tx / scale;
+    const viewTop = -translate.ty / scale;
+    const viewRight = viewLeft + width / scale;
+    const viewBottom = viewTop + height / scale;
+    const padding = Number.isFinite(options.padding) ? options.padding : 20;
+    const fullyVisible = elements.some((el) => {
+        const bbox = el.getBBox();
+        return bbox.x >= viewLeft + padding &&
+            bbox.y >= viewTop + padding &&
+            bbox.x + bbox.width <= viewRight - padding &&
+            bbox.y + bbox.height <= viewBottom - padding;
+    });
+    if (!fullyVisible || options.force === true) {
+        fitContent();
+        return true;
+    }
+    return false;
+}
+
 export function syncPaperToContent(options = {}) {
     const { paper, graph } = state;
     const dom = getDom();

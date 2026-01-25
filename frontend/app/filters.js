@@ -82,6 +82,7 @@ export function applyFiltersAndRender(options = {}) {
         scheduleMinimap();
         return;
     }
+    stateManager.setState('graphResetView', true);
 
     const nodeCount = estimateGraphNodeCount(filtered, viewType);
     const edgeCount = estimateGraphEdgeCount(filtered, viewType);
