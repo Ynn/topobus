@@ -22,6 +22,8 @@ pub struct AreaInfo {
     pub description: Option<String>,
     /// Area comment (if available)
     pub comment: Option<String>,
+    /// Area completion status (if available)
+    pub completion_status: Option<String>,
 }
 
 /// Information about a KNX line
@@ -39,6 +41,8 @@ pub struct LineInfo {
     pub comment: Option<String>,
     /// Line medium type (TP/IP/RF/etc.) if available
     pub medium_type: Option<String>,
+    /// Line completion status (if available)
+    pub completion_status: Option<String>,
 }
 
 /// Information about a KNX device

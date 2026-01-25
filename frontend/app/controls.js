@@ -80,7 +80,7 @@ export function setupControls() {
     if (dom.relayoutBtn) {
         dom.relayoutBtn.addEventListener('click', () => {
             if (state.currentProject) {
-                applyFiltersAndRender();
+                applyFiltersAndRender({ force: true });
             }
         });
     }

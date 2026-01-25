@@ -14,12 +14,23 @@ import {
 } from '../utils.js';
 
 let cachedElk = null;
+let cachedGraphRef = null;
+const groupWidthCache = new Map();
+
+export function resetLayoutCaches() {
+    cachedGraphRef = null;
+    groupWidthCache.clear();
+}
 
 export function layoutGroupView(nodes, elementsById, options = {}) {
     const elk = getElkInstance();
     const viewType = options.viewType || state.currentView;
-    const allowElk = options.enableElk !== false && viewType === 'group';
+    const allowElk = options.enableElk !== false && (viewType === 'group' || viewType === 'device');
     const shouldUseElk = Boolean(elk && allowElk);
+    if (state.currentGraphData !== cachedGraphRef) {
+        groupWidthCache.clear();
+        cachedGraphRef = state.currentGraphData;
+    }
     const deviceNodes = nodes
         .filter(n => n.kind === 'device')
         .sort((a, b) => compareIndividualAddress(a, b));
@@ -71,10 +82,23 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
         columnHeights[col] += layout.height + settings.columnGap;
     });
 
+    if (viewType === 'group' && state.currentGraphData && Array.isArray(state.currentGraphData.edges)) {
+        const nodeById = new Map(nodes.map(node => [node.id, node]));
+        const deviceById = new Map(deviceNodes.map(node => [node.id, node]));
+        const deviceEdges = buildDeviceEdges(state.currentGraphData.edges, nodeById, deviceById);
+        if (deviceEdges.length) {
+            applyComponentLayout(layouts, deviceEdges, width, settings);
+        }
+    }
+
     applyGroupLayouts(layouts, elementsById, settings);
 
-    if (shouldUseElk && deviceNodes.length > 1) {
-        scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings);
+    const edgeCount = state.currentGraphData && Array.isArray(state.currentGraphData.edges)
+        ? state.currentGraphData.edges.length
+        : 0;
+    const elkAllowedForSize = viewType !== 'device' || (deviceNodes.length <= 1200 && edgeCount <= 4000);
+    if (shouldUseElk && elkAllowedForSize && deviceNodes.length > 1) {
+        scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings, viewType, width);
     }
 }
 
@@ -117,12 +141,15 @@ function getElkInstance() {
     return cachedElk;
 }
 
-function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings) {
+function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings, viewType, availableWidth) {
     const elk = getElkInstance();
     if (!elk) return;
     const graphData = state.currentGraphData;
     if (!graphData || !graphData.edges || !graphData.edges.length) return;
 
+    const algorithm = state.elkSettings && state.elkSettings.algorithm
+        ? state.elkSettings.algorithm
+        : 'layered';
     const nodeById = new Map(nodes.map(node => [node.id, node]));
     const deviceById = new Map(deviceNodes.map(node => [node.id, node]));
     const edges = buildDeviceEdges(graphData.edges, nodeById, deviceById);
@@ -155,7 +182,7 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
     elk.layout(elkGraph).then((result) => {
         if (!result || !result.children) return;
         if (state.elkLayoutToken !== token) return;
-        if (state.currentView !== 'group') return;
+        if (!isElkViewActive(viewType)) return;
 
         const positions = new Map(result.children.map(child => [child.id, child]));
         let minX = Infinity;
@@ -175,6 +202,31 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
             layout.y = Math.round((pos.y || 0) + offsetY);
         });
 
+        if (algorithm === 'stress' || algorithm === 'force' || algorithm === 'disco') {
+            const overlapPadding = Math.max(8, Math.round(settings.padding * 0.9));
+            resolveOverlaps(layouts, overlapPadding, 18);
+            let adjustMinX = Infinity;
+            let adjustMinY = Infinity;
+            layouts.forEach((layout) => {
+                adjustMinX = Math.min(adjustMinX, layout.x || 0);
+                adjustMinY = Math.min(adjustMinY, layout.y || 0);
+            });
+            if (isFinite(adjustMinX) && isFinite(adjustMinY)) {
+                const shiftX = 40 - adjustMinX;
+                const shiftY = 40 - adjustMinY;
+                if (Math.abs(shiftX) > 0.1 || Math.abs(shiftY) > 0.1) {
+                    layouts.forEach((layout) => {
+                        layout.x = Math.round((layout.x || 0) + shiftX);
+                        layout.y = Math.round((layout.y || 0) + shiftY);
+                    });
+                }
+            }
+        }
+
+        if (viewType === 'group' && edges.length) {
+            applyComponentLayout(layouts, edges, availableWidth, settings);
+        }
+
         if (state.graph && state.graph.startBatch) {
             state.graph.startBatch('elk-layout');
         }
@@ -190,6 +242,67 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
         state.elkLayoutActive = false;
         stopGraphLoading();
     });
+}
+
+function resolveOverlaps(layouts, padding, maxIterations = 16) {
+    if (!Array.isArray(layouts) || layouts.length < 2) return;
+    const count = layouts.length;
+    for (let iter = 0; iter < maxIterations; iter += 1) {
+        let moved = false;
+        const displacements = new Array(count).fill(0).map(() => ({ x: 0, y: 0 }));
+
+        for (let i = 0; i < count; i += 1) {
+            const a = layouts[i];
+            const aw = a.width || 0;
+            const ah = a.height || 0;
+            const ax = (a.x || 0) + aw / 2;
+            const ay = (a.y || 0) + ah / 2;
+            for (let j = i + 1; j < count; j += 1) {
+                const b = layouts[j];
+                const bw = b.width || 0;
+                const bh = b.height || 0;
+                const bx = (b.x || 0) + bw / 2;
+                const by = (b.y || 0) + bh / 2;
+
+                let dx = ax - bx;
+                let dy = ay - by;
+                if (dx === 0 && dy === 0) {
+                    dx = (Math.random() - 0.5) * 0.1;
+                    dy = (Math.random() - 0.5) * 0.1;
+                }
+
+                const overlapX = (aw / 2 + bw / 2 + padding) - Math.abs(dx);
+                if (overlapX <= 0) continue;
+                const overlapY = (ah / 2 + bh / 2 + padding) - Math.abs(dy);
+                if (overlapY <= 0) continue;
+
+                moved = true;
+                if (overlapX < overlapY) {
+                    const shift = overlapX / 2;
+                    const dir = dx >= 0 ? 1 : -1;
+                    displacements[i].x += dir * shift;
+                    displacements[j].x -= dir * shift;
+                } else {
+                    const shift = overlapY / 2;
+                    const dir = dy >= 0 ? 1 : -1;
+                    displacements[i].y += dir * shift;
+                    displacements[j].y -= dir * shift;
+                }
+            }
+        }
+
+        if (!moved) break;
+        for (let i = 0; i < count; i += 1) {
+            layouts[i].x = (layouts[i].x || 0) + displacements[i].x;
+            layouts[i].y = (layouts[i].y || 0) + displacements[i].y;
+        }
+    }
+}
+
+function isElkViewActive(viewType) {
+    if (viewType === 'group') return state.currentView === 'group';
+    if (viewType === 'device') return state.currentView === 'devices';
+    return true;
 }
 
 function buildDeviceEdges(edges, nodeById, deviceById) {
@@ -217,6 +330,172 @@ function buildDeviceEdges(edges, nodeById, deviceById) {
     });
 }
 
+function applyComponentLayout(layouts, edges, availableWidth, settings) {
+    const components = buildConnectedComponents(layouts, edges);
+    if (!components.length) return;
+
+    components.forEach((component) => {
+        if (component.edges.length) {
+            optimizeGroupAngles(component.layouts, component.edges, settings);
+        }
+    });
+
+    const elk = state.elkSettings || {};
+    const gapHint = Number(elk.componentGap || elk.spacingLayer || 0);
+    const baseGap = Math.max(40, Math.round(settings.columnGap * 0.8));
+    const gap = gapHint > 0 ? Math.max(20, gapHint) : baseGap;
+    packComponents(components, availableWidth, gap);
+}
+
+function buildConnectedComponents(layouts, edges) {
+    if (!layouts.length) return [];
+    const byId = new Map(layouts.map(layout => [layout.node.id, layout]));
+    const adjacency = new Map();
+    layouts.forEach(layout => adjacency.set(layout.node.id, new Set()));
+
+    edges.forEach((edge) => {
+        if (!byId.has(edge.source) || !byId.has(edge.target)) return;
+        adjacency.get(edge.source).add(edge.target);
+        adjacency.get(edge.target).add(edge.source);
+    });
+
+    const seen = new Set();
+    const components = [];
+    layouts.forEach((layout) => {
+        const id = layout.node.id;
+        if (seen.has(id)) return;
+        const stack = [id];
+        const nodes = [];
+        const nodeSet = new Set();
+        seen.add(id);
+        while (stack.length) {
+            const current = stack.pop();
+            nodeSet.add(current);
+            const item = byId.get(current);
+            if (item) nodes.push(item);
+            const neighbors = adjacency.get(current);
+            if (!neighbors) continue;
+            neighbors.forEach((next) => {
+                if (seen.has(next)) return;
+                seen.add(next);
+                stack.push(next);
+            });
+        }
+        const componentEdges = edges.filter((edge) => nodeSet.has(edge.source) && nodeSet.has(edge.target));
+        components.push({ layouts: nodes, edges: componentEdges });
+    });
+    return components;
+}
+
+function packComponents(components, availableWidth, gap) {
+    if (!components.length) return;
+    const width = Math.max(600, availableWidth || 0);
+    const sorted = components.slice().sort((a, b) => b.layouts.length - a.layouts.length);
+    let cursorX = 40;
+    let cursorY = 40;
+    let rowHeight = 0;
+
+    sorted.forEach((component) => {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        component.layouts.forEach((layout) => {
+            minX = Math.min(minX, layout.x || 0);
+            minY = Math.min(minY, layout.y || 0);
+            maxX = Math.max(maxX, (layout.x || 0) + (layout.width || 0));
+            maxY = Math.max(maxY, (layout.y || 0) + (layout.height || 0));
+        });
+        if (!isFinite(minX) || !isFinite(minY)) return;
+        const compWidth = maxX - minX;
+        const compHeight = maxY - minY;
+
+        if (cursorX + compWidth > width && cursorX > 40) {
+            cursorX = 40;
+            cursorY += rowHeight + gap;
+            rowHeight = 0;
+        }
+
+        const shiftX = cursorX - minX;
+        const shiftY = cursorY - minY;
+        component.layouts.forEach((layout) => {
+            layout.x = (layout.x || 0) + shiftX;
+            layout.y = (layout.y || 0) + shiftY;
+        });
+
+        cursorX += compWidth + gap;
+        rowHeight = Math.max(rowHeight, compHeight);
+    });
+}
+
+function optimizeGroupAngles(layouts, edges, settings) {
+    if (!Array.isArray(layouts) || layouts.length < 2) return;
+    if (!Array.isArray(edges) || edges.length === 0) return;
+
+    const byId = new Map(layouts.map(layout => [layout.node.id, layout]));
+    const avgWidth = layouts.reduce((sum, l) => sum + (l.width || 0), 0) / layouts.length;
+    const avgHeight = layouts.reduce((sum, l) => sum + (l.height || 0), 0) / layouts.length;
+    const padding = Math.max(10, Math.round(Math.max(avgWidth, avgHeight) * 0.08));
+    const maxSlope = 0.9;
+    const maxShift = Math.max(24, Math.round(avgWidth * 0.25));
+    const iterations = layouts.length > 500 ? 6 : 10;
+
+    for (let iter = 0; iter < iterations; iter += 1) {
+        let moved = false;
+        const displacements = new Map();
+
+        edges.forEach((edge) => {
+            const a = byId.get(edge.source);
+            const b = byId.get(edge.target);
+            if (!a || !b) return;
+            const ax = (a.x || 0) + (a.width || 0) / 2;
+            const ay = (a.y || 0) + (a.height || 0) / 2;
+            const bx = (b.x || 0) + (b.width || 0) / 2;
+            const by = (b.y || 0) + (b.height || 0) / 2;
+            const dx = bx - ax;
+            const dy = by - ay;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            const minDx = ((a.width || 0) + (b.width || 0)) / 2 + padding;
+            const desiredDx = Math.max(minDx, absDy / maxSlope);
+            if (absDx >= desiredDx) return;
+            moved = true;
+            const delta = Math.min(maxShift, (desiredDx - absDx) * 0.6);
+            const dir = dx >= 0 ? 1 : -1;
+            const aShift = displacements.get(a) || 0;
+            const bShift = displacements.get(b) || 0;
+            displacements.set(a, aShift - dir * (delta / 2));
+            displacements.set(b, bShift + dir * (delta / 2));
+        });
+
+        if (!moved) break;
+        layouts.forEach((layout) => {
+            const shift = displacements.get(layout);
+            if (!shift) return;
+            layout.x = (layout.x || 0) + shift;
+        });
+
+        resolveOverlaps(layouts, padding, layouts.length > 500 ? 6 : 8);
+    }
+
+    let minX = Infinity;
+    let minY = Infinity;
+    layouts.forEach((layout) => {
+        minX = Math.min(minX, layout.x || 0);
+        minY = Math.min(minY, layout.y || 0);
+    });
+    if (isFinite(minX) && isFinite(minY)) {
+        const shiftX = Math.max(0, 40 - minX);
+        const shiftY = Math.max(0, 40 - minY);
+        if (shiftX || shiftY) {
+            layouts.forEach((layout) => {
+                layout.x = (layout.x || 0) + shiftX;
+                layout.y = (layout.y || 0) + shiftY;
+            });
+        }
+    }
+}
+
 function resolveDeviceId(node) {
     if (!node) return '';
     if (node.kind === 'device') return node.id;
@@ -234,7 +513,17 @@ function buildElkOptions(settings) {
             'elk.stress.iterations': String(elk.iterations || elk.stressIterations || stress.iterations || 300),
             'elk.stress.epsilon': String(elk.epsilon || stress.epsilon || 0.001),
             'elk.stress.desiredEdgeLength': String(elk.desiredEdgeLength || stress.desiredEdgeLength || 100),
-            'elk.spacing.nodeNode': String(elk.spacingNodeNode || 80)
+            'elk.spacing.nodeNode': String(elk.spacingNodeNode || 80),
+            'elk.separateConnectedComponents': 'true'
+        };
+    }
+
+    if (algorithm !== 'layered') {
+        const nodeGap = Math.max(30, Number(elk.spacingNodeNode || 0) || Math.round(settings.columnGap * 0.8));
+        return {
+            'elk.algorithm': algorithm,
+            'elk.spacing.nodeNode': String(nodeGap),
+            'elk.separateConnectedComponents': 'true'
         };
     }
 
@@ -297,7 +586,15 @@ export function alignGroupLinks(cell) {
         const sourceBox = sourceCell.getBBox();
         const targetBox = targetCell.getBBox();
         const sourceCenterX = sourceBox.x + sourceBox.width / 2;
+        const sourceCenterY = sourceBox.y + sourceBox.height / 2;
         const targetCenterX = targetBox.x + targetBox.width / 2;
+        const targetCenterY = targetBox.y + targetBox.height / 2;
+        const sourceKind = sourceCell.get('kind');
+        const targetKind = targetCell.get('kind');
+        const objectEndpoint = sourceKind === 'groupobject' ||
+            targetKind === 'groupobject' ||
+            sourceKind === 'composite-object' ||
+            targetKind === 'composite-object';
         if (targetCenterX >= sourceCenterX) {
             link.source({ id: sourceId, anchor: { name: 'right' } });
             link.target({ id: targetId, anchor: { name: 'left' } });
@@ -538,11 +835,18 @@ export function layoutTopologyView(nodes, elementsById) {
 }
 
 export function computeGroupDeviceWidth(node, children, settings) {
+    if (state.isLargeGraph) {
+        return settings.deviceMinWidth;
+    }
     const theme = readTheme();
     const address = getNodeProp(node, 'address', '');
     const name = formatDeviceName(node) || getNodeProp(node, 'name', node.label || '');
     const addressFont = `700 ${settings.headerFont.address}px ${theme.fontSans}`;
     const nameFont = `600 ${settings.headerFont.name}px ${theme.fontSans}`;
+
+    const cacheKey = `${node.id || name}|${children.length}|${settings.scale}`;
+    const cached = groupWidthCache.get(cacheKey);
+    if (cached) return cached;
 
     let width = Math.max(
         measureTextWidth(address, addressFont),
@@ -562,7 +866,11 @@ export function computeGroupDeviceWidth(node, children, settings) {
         width = Math.max(width, rowWidth);
     });
 
-    return Math.max(width, settings.deviceMinWidth);
+    const minWidth = Math.max(width, settings.deviceMinWidth);
+    const maxWidth = settings.deviceMaxWidth ? Math.max(settings.deviceMinWidth, settings.deviceMaxWidth) : minWidth;
+    const finalWidth = Math.min(minWidth, maxWidth);
+    groupWidthCache.set(cacheKey, finalWidth);
+    return finalWidth;
 }
 
 export function computeTopologyDeviceWidth(nodes, settings) {
@@ -788,6 +1096,11 @@ export function resizeParentNode(cell) {
 export function normalizeContainerLayout() {
     const { graph } = state;
     if (!graph) return;
+    if (state.currentView === 'group' &&
+        state.viewPreferences.groupGraph === 'hierarchy' &&
+        state.groupHierarchySummaryMode) {
+        return;
+    }
     const elements = graph.getElements();
     if (!elements.length) return;
 

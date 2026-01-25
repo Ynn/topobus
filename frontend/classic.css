@@ -111,6 +111,8 @@ body {
 
     --accent: var(--ctp-teal);
     --accent-strong: var(--ctp-sapphire);
+    --graph-accent: var(--ctp-teal);
+    --graph-accent-strong: var(--ctp-peach);
     --device-fill: #f4d6cf;
     --device-header: #f0cfc6;
     --device-border: #c9807f;
@@ -199,6 +201,31 @@ body {
     --shadow-md: 0 8px 14px -6px rgba(17, 17, 27, 0.6);
     --shadow-lg: 0 16px 28px -12px rgba(17, 17, 27, 0.7);
     --shadow-xl: 0 28px 40px -18px rgba(17, 17, 27, 0.8);
+
+    /* Graph overrides: use Latte palette for graph readability */
+    /* Graph text uses dark ink to stay readable on light node fills. */
+    --graph-ink: #4c4f69;
+    --graph-muted: #5c5f77;
+    --graph-accent: var(--ctp-sky);
+    --graph-accent-strong: var(--ctp-peach);
+    --graph-border: #bcc0cc;
+    --graph-device-fill: #f4d6cf;
+    --graph-device-header: #f0cfc6;
+    --graph-device-border: #c9807f;
+    --graph-coupler-fill: #d6eaf3;
+    --graph-coupler-header: #c9e2ee;
+    --graph-coupler-border: #2b6f87;
+    --graph-object-fill: #fae7c4;
+    --graph-object-fill-tx: #dff2ea;
+    --graph-object-border: #d3b57f;
+    --graph-line-fill: rgba(23, 146, 153, 0.1);
+    --graph-line-border: #179299;
+    --graph-area-fill: rgba(76, 79, 105, 0.06);
+    --graph-area-border: #4c4f69;
+}
+
+.theme-mocha .title-text {
+    color: var(--ctp-text);
 }
 
 /* Avoid global transitions; only apply to interactive UI elements. */
@@ -343,10 +370,17 @@ body {
     box-shadow: var(--shadow-sm);
 }
 
+.brand-logo {
+    width: 22px;
+    height: 22px;
+    display: inline-block;
+}
+
 .title-text {
     font-size: 13px;
     font-weight: 600;
     letter-spacing: 0.3px;
+    color: var(--text-primary);
 }
 
 /* Tabs Bar - Modern Design */
@@ -816,6 +850,7 @@ body.graph-fullscreen .window {
     flex: 1;
     overflow: auto;
     background: var(--bg-white);
+    --table-row-height: 28px;
 }
 
 /* Tables - Modern and Clean */
@@ -907,6 +942,8 @@ td {
     color: var(--text-primary);
     font-size: 12px;
     border-right: 1px solid var(--border-color);
+    height: var(--table-row-height);
+    line-height: calc(var(--table-row-height) - 10px);
 }
 
 td:first-child,
@@ -924,16 +961,20 @@ tr {
     transition: background-color 0.15s ease;
 }
 
-tbody tr:nth-child(even) {
+tr.table-row {
+    height: var(--table-row-height);
+}
+
+.table-row.row-even {
     background: var(--bg-light);
 }
 
-tr:hover {
+tr.table-row:hover {
     background: var(--hover-bg);
     box-shadow: none;
 }
 
-tr:active {
+tr.table-row:active {
     transform: none;
 }
 
@@ -941,6 +982,12 @@ tr.selected-row {
     background: var(--selected-bg);
     color: var(--primary-blue);
     font-weight: 600;
+}
+
+tr.table-spacer td {
+    border: none;
+    background: transparent;
+    padding: 0;
 }
 
 /* Properties Sidebar - Premium Card */
@@ -1088,6 +1135,14 @@ tr.selected-row {
     letter-spacing: 0.5px;
 }
 
+.panel-tab-panel {
+    display: none;
+}
+
+.panel-tab-panel.active {
+    display: block;
+}
+
 .panel-row {
     display: flex;
     align-items: center;
@@ -1112,6 +1167,58 @@ tr.selected-row {
     text-align: right;
     max-width: 60%;
     word-break: break-word;
+}
+
+.panel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.panel-item {
+    padding: 8px;
+    background: var(--bg-white);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
+.panel-item-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.panel-item-meta {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.panel-item-flags {
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.panel-item-tags {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.panel-item-value {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+}
+
+.panel-empty {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    padding: 6px 0;
 }
 
 .panel-tag {
@@ -1281,6 +1388,44 @@ tr.selected-row {
     overflow: auto;
 }
 
+.settings-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 4px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-light);
+    margin-bottom: 14px;
+}
+
+.settings-tab {
+    flex: 1 1 0;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.settings-tab.active {
+    background: var(--bg-white);
+    color: var(--text-primary);
+    border-color: var(--border-color);
+    box-shadow: var(--shadow-sm);
+}
+
+.settings-tab-panel {
+    display: none;
+}
+
+.settings-tab-panel.active {
+    display: block;
+}
+
 .settings-section + .settings-section {
     margin-top: 18px;
 }
@@ -1344,6 +1489,49 @@ tr.selected-row {
     margin-right: 6px;
 }
 
+.settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 18px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+    gap: 8px;
+}
+
+.settings-reset-btn,
+.settings-save-btn,
+.settings-cancel-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-light);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.settings-save-btn {
+    background: var(--primary-blue);
+    border-color: var(--primary-blue);
+    color: #fff;
+}
+
+.settings-save-btn:hover {
+    filter: brightness(1.05);
+}
+
+.settings-cancel-btn {
+    background: var(--bg-white);
+}
+
+.settings-reset-btn:hover,
+.settings-cancel-btn:hover {
+    border-color: var(--primary-blue);
+    color: var(--primary-blue);
+    background: var(--bg-white);
+}
+
 .search-clear:hover {
     color: var(--primary-blue);
 }
@@ -1374,4 +1562,25 @@ tr.selected-row {
 
 .window {
     animation: fadeIn 0.3s ease-out;
+}
+#loading {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.85);
+    color: var(--text-primary);
+}
+
+#loading.hidden {
+    display: none;
+}
+
+.theme-mocha #loading {
+    background: rgba(17, 17, 27, 0.86);
+    color: var(--ctp-text);
 }

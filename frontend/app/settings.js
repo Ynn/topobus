@@ -1,13 +1,16 @@
 import { state } from './state.js';
 import { getDom } from './dom.js';
 import { applyFiltersAndRender } from './filters.js';
-import { updateLinkStyles, applyElementStyle } from './graph/styles.js';
+import { resetLayoutCaches } from './graph/layout.js';
+import { updateLinkStyles, applyElementStyle, applySelectionStyles } from './graph/styles.js';
 import { readTheme } from './theme.js';
 
 const STORAGE_KEY = 'topobus.settings';
+let draftSettings = null;
+let activeSettingsTab = 'theme';
 
 const DEFAULT_SETTINGS = {
-    theme: 'classic',
+    theme: 'latte',
     elkPreset: 'balanced',
     elk: {
         algorithm: 'layered',
@@ -154,10 +157,11 @@ export function initSettings() {
 
 function bindSettingsControls(dom) {
     if (!dom) return;
+    bindSettingsTabs(dom);
     if (dom.settingsTheme) {
         dom.settingsTheme.addEventListener('change', (event) => {
             const value = event.target.value;
-            updateSettings({ theme: value });
+            updateDraft({ theme: value });
         });
     }
     if (dom.settingsPreset) {
@@ -166,12 +170,27 @@ function bindSettingsControls(dom) {
             applyPreset(preset);
         });
     }
+    if (dom.settingsReset) {
+        dom.settingsReset.addEventListener('click', () => {
+            resetSettings();
+        });
+    }
+    if (dom.settingsSave) {
+        dom.settingsSave.addEventListener('click', () => {
+            saveSettings();
+        });
+    }
+    if (dom.settingsCancel) {
+        dom.settingsCancel.addEventListener('click', () => {
+            cancelSettings();
+        });
+    }
 
     const updateNumber = (key, target, parser = Number) => {
         if (!target) return;
         target.addEventListener('change', () => {
             const next = parser(target.value);
-            updateSettings({ elk: { [key]: Number.isFinite(next) ? next : target.value } });
+            updateDraft({ elk: { [key]: Number.isFinite(next) ? next : target.value } });
         });
     };
 
@@ -179,58 +198,58 @@ function bindSettingsControls(dom) {
         if (!target) return;
         target.addEventListener('change', () => {
             const next = parser(target.value);
-            updateSettings({ stress: { [key]: Number.isFinite(next) ? next : target.value } });
+            updateDraft({ stress: { [key]: Number.isFinite(next) ? next : target.value } });
         });
     };
 
     if (dom.settingsAlgorithm) {
         dom.settingsAlgorithm.addEventListener('change', (event) => {
-            updateSettings({ elk: { algorithm: event.target.value } });
+            updateDraft({ elk: { algorithm: event.target.value } });
         });
     }
     if (dom.settingsDirection) {
         dom.settingsDirection.addEventListener('change', (event) => {
-            updateSettings({ elk: { direction: event.target.value } });
+            updateDraft({ elk: { direction: event.target.value } });
         });
     }
     if (dom.settingsEdgeRouting) {
         dom.settingsEdgeRouting.addEventListener('change', (event) => {
-            updateSettings({ elk: { edgeRouting: event.target.value } });
+            updateDraft({ elk: { edgeRouting: event.target.value } });
         });
     }
     if (dom.settingsLayering) {
         dom.settingsLayering.addEventListener('change', (event) => {
-            updateSettings({ elk: { layering: event.target.value } });
+            updateDraft({ elk: { layering: event.target.value } });
         });
     }
     if (dom.settingsNodePlacement) {
         dom.settingsNodePlacement.addEventListener('change', (event) => {
-            updateSettings({ elk: { nodePlacement: event.target.value } });
+            updateDraft({ elk: { nodePlacement: event.target.value } });
         });
     }
     if (dom.settingsCrossing) {
         dom.settingsCrossing.addEventListener('change', (event) => {
-            updateSettings({ elk: { crossingMinimization: event.target.value } });
+            updateDraft({ elk: { crossingMinimization: event.target.value } });
         });
     }
     if (dom.settingsCycleBreaking) {
         dom.settingsCycleBreaking.addEventListener('change', (event) => {
-            updateSettings({ elk: { cycleBreaking: event.target.value } });
+            updateDraft({ elk: { cycleBreaking: event.target.value } });
         });
     }
     if (dom.settingsConsiderModelOrder) {
         dom.settingsConsiderModelOrder.addEventListener('change', (event) => {
-            updateSettings({ elk: { considerModelOrder: event.target.checked } });
+            updateDraft({ elk: { considerModelOrder: event.target.checked } });
         });
     }
     if (dom.settingsMergeEdges) {
         dom.settingsMergeEdges.addEventListener('change', (event) => {
-            updateSettings({ elk: { mergeEdges: event.target.checked } });
+            updateDraft({ elk: { mergeEdges: event.target.checked } });
         });
     }
     if (dom.settingsSplinesMode) {
         dom.settingsSplinesMode.addEventListener('change', (event) => {
-            updateSettings({ elk: { splinesMode: event.target.value } });
+            updateDraft({ elk: { splinesMode: event.target.value } });
         });
     }
 
@@ -249,28 +268,67 @@ function bindSettingsControls(dom) {
 
 function applyPreset(presetKey) {
     const preset = PRESETS[presetKey] || PRESETS.balanced;
-    const current = loadSettings();
+    const current = getDraft();
     const next = mergeSettings(current, preset);
     next.elkPreset = preset.elkPreset || presetKey;
-    applySettings(next);
+    setDraft(next);
 }
 
-function updateSettings(patch) {
-    const current = loadSettings();
+function updateDraft(patch) {
+    const current = getDraft();
     const next = mergeSettings(current, patch);
-    next.elkPreset = 'custom';
+    if (patch && (Object.prototype.hasOwnProperty.call(patch, 'elk') ||
+        Object.prototype.hasOwnProperty.call(patch, 'stress'))) {
+        next.elkPreset = 'custom';
+    }
+    setDraft(next);
+}
+
+function resetSettings() {
+    const next = mergeSettings({}, DEFAULT_SETTINGS);
+    setDraft(next);
+}
+
+function saveSettings() {
+    const next = getDraft();
     applySettings(next);
+    closeSettings();
+}
+
+function cancelSettings() {
+    setDraft(state.uiSettings || DEFAULT_SETTINGS);
+    closeSettings();
+}
+
+function getDraft() {
+    if (!draftSettings) {
+        draftSettings = mergeSettings({}, state.uiSettings || DEFAULT_SETTINGS);
+    }
+    return draftSettings;
+}
+
+function setDraft(settings) {
+    draftSettings = mergeSettings({}, settings);
+    syncSettingsUI(draftSettings);
 }
 
 function applySettings(settings, { persist = true, rerender = true } = {}) {
     state.uiSettings = settings;
     state.elkSettings = settings.elk;
     state.elkPreset = settings.elkPreset || 'custom';
+    const previousTheme = state.themeName;
     state.themeName = settings.theme || 'latte';
+    const themeChanged = previousTheme !== state.themeName;
 
     applyTheme(state.themeName);
     readTheme(true);
     syncSettingsUI(settings);
+    if (themeChanged) {
+        resetLayoutCaches();
+        state.lastGraphKey = null;
+        state.lastGraphViewType = null;
+    }
+    refreshGraphTheme();
 
     if (persist) {
         try {
@@ -284,11 +342,10 @@ function applySettings(settings, { persist = true, rerender = true } = {}) {
         const dom = getDom();
         if (dom && dom.graphView && dom.graphView.style.display !== 'none') {
             applyFiltersAndRender();
-        } else {
-            refreshGraphTheme();
+            if (themeChanged && typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => requestAnimationFrame(() => refreshGraphTheme()));
+            }
         }
-    } else {
-        refreshGraphTheme();
     }
 }
 
@@ -296,8 +353,31 @@ function refreshGraphTheme() {
     const { graph } = state;
     if (!graph) return;
     const theme = readTheme(true);
-    graph.getElements().forEach((el) => applyElementStyle(el, theme, false));
+    graph.getElements().forEach((el) => {
+        applyElementStyle(el, theme, false);
+        const kind = el.get('kind');
+        if (kind === 'device' || kind === 'composite-device') {
+            el.attr('address/fill', theme.ink);
+            el.attr('name/fill', theme.ink);
+            el.attr('summary/fill', theme.ink);
+            return;
+        }
+        if (kind === 'groupobject' || kind === 'composite-object') {
+            const isTx = el.get('isTransmitter');
+            const isRx = el.get('isReceiver');
+            const addressColor = isTx ? theme.accent : (isRx ? theme.ink : theme.muted);
+            el.attr('name/fill', theme.ink);
+            el.attr('address/fill', addressColor);
+            return;
+        }
+        if (kind === 'area' || kind === 'line' || kind === 'segment' || kind === 'building-space' ||
+            kind === 'composite-main' || kind === 'composite-middle' || kind === 'composite-ga') {
+            el.attr('label/fill', theme.ink);
+            el.attr('summary/fill', theme.ink);
+        }
+    });
     updateLinkStyles();
+    applySelectionStyles();
 }
 
 function applyTheme(theme) {
@@ -338,7 +418,7 @@ function mergeSettings(base, patch) {
 function syncSettingsUI(settings) {
     const dom = getDom();
     if (!dom) return;
-    if (dom.settingsTheme) dom.settingsTheme.value = settings.theme || 'classic';
+    if (dom.settingsTheme) dom.settingsTheme.value = settings.theme || 'latte';
     if (dom.settingsPreset) dom.settingsPreset.value = settings.elkPreset || 'custom';
     if (dom.settingsAlgorithm) dom.settingsAlgorithm.value = settings.elk.algorithm || 'layered';
     if (dom.settingsDirection) dom.settingsDirection.value = settings.elk.direction || 'RIGHT';
@@ -367,11 +447,41 @@ function openSettings() {
     const dom = getDom();
     if (!dom || !dom.settingsOverlay) return;
     dom.settingsOverlay.classList.remove('hidden');
-    syncSettingsUI(state.uiSettings || DEFAULT_SETTINGS);
+    setDraft(state.uiSettings || DEFAULT_SETTINGS);
+    setActiveSettingsTab(activeSettingsTab, dom.settingsOverlay);
 }
 
 function closeSettings() {
     const dom = getDom();
     if (!dom || !dom.settingsOverlay) return;
     dom.settingsOverlay.classList.add('hidden');
+}
+
+function bindSettingsTabs(dom) {
+    if (!dom.settingsOverlay) return;
+    const tabs = Array.from(dom.settingsOverlay.querySelectorAll('.settings-tab'));
+    if (!tabs.length) return;
+    tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+            const key = tab.getAttribute('data-settings-tab') || 'theme';
+            activeSettingsTab = key;
+            setActiveSettingsTab(key, dom.settingsOverlay);
+        });
+    });
+}
+
+function setActiveSettingsTab(key, root) {
+    if (!root) return;
+    const tabs = Array.from(root.querySelectorAll('.settings-tab'));
+    const panels = Array.from(root.querySelectorAll('.settings-tab-panel'));
+    tabs.forEach((tab) => {
+        const tabKey = tab.getAttribute('data-settings-tab');
+        const isActive = tabKey === key;
+        tab.classList.toggle('active', isActive);
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    panels.forEach((panel) => {
+        const panelKey = panel.getAttribute('data-settings-panel');
+        panel.classList.toggle('active', panelKey === key);
+    });
 }

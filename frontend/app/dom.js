@@ -22,6 +22,7 @@ export function initDom() {
 
         // Properties
         propertiesSidebar: document.getElementById('right-sidebar'),
+        propertiesTabs: document.querySelector('.properties-tabs'),
         propertiesPanel: document.getElementById('properties-panel'),
         togglePropsBtn: document.getElementById('toggle-props-btn'),
         propsReopenBtn: document.getElementById('properties-reopen'),
@@ -67,6 +68,9 @@ export function initDom() {
         settingsStressIterations: document.getElementById('settings-stress-iterations'),
         settingsStressEpsilon: document.getElementById('settings-stress-epsilon'),
         settingsStressEdgeLength: document.getElementById('settings-stress-edge-length'),
+        settingsSave: document.getElementById('settings-save'),
+        settingsCancel: document.getElementById('settings-cancel'),
+        settingsReset: document.getElementById('settings-reset'),
 
         // Buttons / Controls
         btnOpenProject: document.getElementById('btn-open-project'),

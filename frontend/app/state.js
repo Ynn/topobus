@@ -29,6 +29,8 @@ export const state = {
     elkLayoutToken: 0,
     elkLayoutActive: false,
     graphLoadingActive: false,
+    graphBounds: null,
+    graphBoundsDirty: true,
     filteredProject: null,
     filters: {
         area: 'all',
@@ -53,10 +55,13 @@ export const state = {
     deviceSummaryMode: false,
     groupSummaryLinks: [],
     hiddenGroupLinks: [],
+    selectionIndex: null,
     uiSettings: null,
     elkSettings: null,
     elkPreset: 'balanced',
-    themeName: 'classic',
+    themeName: 'latte',
+    deviceGraphCache: new Map(),
+    deviceGraphCacheProject: null,
     viewPreferences: {
         linkStyle: 'auto',
         density: 'comfortable',

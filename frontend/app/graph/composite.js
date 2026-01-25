@@ -521,7 +521,7 @@ function renderHierarchy(node, cells, absoluteX, absoluteY, metrics) {
             const isTx = obj.node && obj.node.properties && obj.node.properties.is_transmitter === 'true';
             const isRx = obj.node && obj.node.properties && obj.node.properties.is_receiver === 'true';
             const fill = isTx ? theme.objectFillTx : theme.objectFill;
-            const addressColor = isTx ? theme.accent : (isRx ? theme.ink : theme.muted);
+            const addressColor = theme.ink;
             const childWidth = node.width - settings.padding * 2;
 
             const objEl = new joint.shapes.knx.GroupObject({

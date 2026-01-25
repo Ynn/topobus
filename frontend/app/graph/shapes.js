@@ -105,7 +105,7 @@ export function initShapes() {
                 textVerticalAnchor: 'middle',
                 fontSize: 11,
                 fontWeight: 700,
-                fill: theme.accent,
+                fill: theme.ink,
                 fontFamily: theme.fontMono
             }
         }

@@ -62,8 +62,9 @@ export function updateFilterOptions(project) {
     refreshFilterControls();
 }
 
-export function applyFiltersAndRender() {
+export function applyFiltersAndRender(options = {}) {
     if (!state.currentProject) return;
+    const force = options.force === true;
     const dom = getDom();
     const graphVisible = dom && dom.graphView && dom.graphView.style.display !== 'none';
     if (!graphVisible) return;
@@ -71,7 +72,7 @@ export function applyFiltersAndRender() {
     state.filteredProject = filtered;
     const viewType = resolveGraphViewType(state.currentView);
     const renderKey = buildGraphRenderKey(viewType);
-    if (state.graph && state.lastGraphKey === renderKey && state.lastGraphViewType === viewType) {
+    if (!force && state.graph && state.lastGraphKey === renderKey && state.lastGraphViewType === viewType) {
         syncPaperToContent({ resetView: false });
         updateZoomLOD();
         scheduleMinimap();
@@ -573,9 +574,19 @@ function estimateGraphEdgeCount(project, viewType) {
 
 function buildGraphRenderKey(viewType) {
     const filters = state.filters || {};
+    const elkKey = state.elkPreset || 'custom';
+    const elkSettingsKey = state.elkSettings ? JSON.stringify(state.elkSettings) : '';
+    const stressKey = state.uiSettings && state.uiSettings.stress
+        ? JSON.stringify(state.uiSettings.stress)
+        : '';
     return [
         viewType,
         state.viewPreferences.groupGraph || 'flat',
+        state.viewPreferences.density || 'comfortable',
+        state.themeName || 'latte',
+        elkKey,
+        elkSettingsKey,
+        stressKey,
         filters.area || 'all',
         filters.line || 'all',
         filters.mainGroup || 'all',

@@ -4,6 +4,7 @@ import { clamp } from './utils.js';
 import { scheduleMinimap } from './minimap.js';
 import { selectCell, clearSelection } from './selection.js';
 import { readTheme } from './theme.js';
+import { rebuildSelectionIndex } from './graph/styles.js';
 
 export function bindInteractions() {
     const { paper } = state;
@@ -386,6 +387,7 @@ function enableGroupHierarchySummary() {
         state.graph.stopBatch('ga-summary');
     }
     state.groupHierarchySummaryMode = true;
+    rebuildSelectionIndex();
 }
 
 function disableGroupHierarchySummary() {
@@ -416,6 +418,7 @@ function disableGroupHierarchySummary() {
         state.graph.stopBatch('ga-summary');
     }
     state.groupHierarchySummaryMode = false;
+    rebuildSelectionIndex();
 }
 
 function updateDeviceSummaryLOD(scale) {
@@ -444,7 +447,12 @@ function enableDeviceSummary() {
     state.graph.getElements().forEach((el) => {
         const kind = el.get('kind');
         if (kind !== 'device' && kind !== 'composite-device') return;
-        const address = el.get('fullAddress') || el.attr('address/text') || '';
+        let address = el.get('fullAddress') || el.attr('address/text') || '';
+        if (state.currentView === 'buildings') {
+            const raw = String(address || '');
+            const base = raw.split('(')[0].replace(/\s+/g, '');
+            address = base || raw.trim();
+        }
         const size = typeof el.size === 'function' ? el.size() : { height: 60 };
         const fontSize = Math.max(24, Math.min(48, Math.round((size.height || 60) * 0.7)));
         el.attr('summary/text', address);
@@ -479,30 +487,23 @@ function enableGroupSummary() {
 
     const graphData = state.currentGraphData;
     const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : [];
-    const gaToDevices = new Map();
-
-    nodes.forEach((node) => {
-        if (node.kind !== 'groupobject') return;
-        if (!node.parent_id) return;
-        const address = node.properties && node.properties.group_address ? node.properties.group_address : '';
-        if (!address) return;
-        if (!gaToDevices.has(address)) {
-            gaToDevices.set(address, new Set());
-        }
-        gaToDevices.get(address).add(node.parent_id);
-    });
-
+    const edges = Array.isArray(graphData.edges) ? graphData.edges : [];
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const pairKeys = new Set();
-    gaToDevices.forEach((devices) => {
-        const list = Array.from(devices).sort();
-        if (list.length < 2) return;
-        const hub = list[0];
-        for (let i = 1; i < list.length; i += 1) {
-            const other = list[i];
-            if (hub === other) continue;
-            const [left, right] = hub < other ? [hub, other] : [other, hub];
-            pairKeys.add(`${left}|${right}`);
-        }
+
+    edges.forEach((edge) => {
+        const sourceNode = nodeById.get(edge.source);
+        const targetNode = nodeById.get(edge.target);
+        if (!sourceNode || !targetNode) return;
+        if (sourceNode.kind !== 'groupobject' || targetNode.kind !== 'groupobject') return;
+        const sourceDevice = sourceNode.parent_id;
+        const targetDevice = targetNode.parent_id;
+        if (!sourceDevice || !targetDevice) return;
+        if (sourceDevice === targetDevice) return;
+        const [left, right] = sourceDevice < targetDevice
+            ? [sourceDevice, targetDevice]
+            : [targetDevice, sourceDevice];
+        pairKeys.add(`${left}|${right}`);
     });
 
     const theme = readTheme();
@@ -526,6 +527,7 @@ function enableGroupSummary() {
             }
         });
         link.set('isAggregate', true);
+        link.set('z', 0);
         aggregateLinks.push(link);
     });
 
@@ -572,6 +574,7 @@ function enableGroupSummary() {
         state.graph.stopBatch('summary');
     }
     state.groupSummaryMode = true;
+    rebuildSelectionIndex();
 }
 
 function disableGroupSummary() {
@@ -624,6 +627,7 @@ function disableGroupSummary() {
         state.graph.stopBatch('summary');
     }
     state.groupSummaryMode = false;
+    rebuildSelectionIndex();
 }
 
 export function zoomBy(factor) {
@@ -657,7 +661,7 @@ export function syncPaperToContent(options = {}) {
     if (!paper || !graph || !dom || !dom.paper) return;
     const elements = graph.getElements();
     if (!elements.length) return;
-    const bounds = computeGraphBounds(elements);
+    const bounds = getGraphBounds(elements);
     if (!bounds) return;
 
     const padding = Number.isFinite(options.padding) ? options.padding : 80;
@@ -686,6 +690,16 @@ export function syncPaperToContent(options = {}) {
     if (options.resetView) {
         paper.translate(padding - bounds.x * scale, padding - bounds.y * scale);
     }
+}
+
+function getGraphBounds(elements) {
+    if (!state.graphBoundsDirty && state.graphBounds) {
+        return state.graphBounds;
+    }
+    const bounds = computeGraphBounds(elements);
+    state.graphBounds = bounds;
+    state.graphBoundsDirty = false;
+    return bounds;
 }
 
 function computeGraphBounds(elements) {

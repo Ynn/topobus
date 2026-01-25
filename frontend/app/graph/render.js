@@ -5,7 +5,7 @@ import { formatDeviceName } from '../utils.js';
 import { layoutGroupView, layoutTopologyView, alignGroupLinks, normalizeContainerLayout } from './layout.js';
 import { renderCompositeGraph } from './composite.js';
 import { renderBuildingGraph } from './building.js';
-import { updateLinkStyles, zForElement } from './styles.js';
+import { updateLinkStyles, zForElement, rebuildSelectionIndex } from './styles.js';
 import { bindInteractions, fitContent, syncPaperToContent, updateZoomLOD } from '../interactions.js';
 import { clearSelection } from '../selection.js';
 import { scheduleMinimap, setMinimapEnabled } from '../minimap.js';
@@ -63,7 +63,7 @@ export function renderGraph(projectData, viewType) {
     state.deviceSummaryMode = false;
     state.groupSummaryLinks = [];
     state.hiddenGroupLinks = [];
-    state.hiddenGroupLinks = [];
+    state.graphBoundsDirty = true;
 
     state.paper = new joint.dia.Paper({
         el: dom.paper,
@@ -131,10 +131,21 @@ export function renderGraph(projectData, viewType) {
         if (viewType === 'group') {
             scheduleLinkAlign(cell);
         }
+        state.graphBoundsDirty = true;
         scheduleMinimap();
     });
-    state.graph.on('change:size', () => scheduleMinimap());
-    state.graph.on('add', () => scheduleMinimap());
+    state.graph.on('change:size', () => {
+        state.graphBoundsDirty = true;
+        scheduleMinimap();
+    });
+    state.graph.on('add', () => {
+        state.graphBoundsDirty = true;
+        scheduleMinimap();
+    });
+    state.graph.on('remove', () => {
+        state.graphBoundsDirty = true;
+        scheduleMinimap();
+    });
     state.paper.on('element:pointerup', () => {
         if (viewType === 'group') {
             alignGroupLinks();
@@ -154,6 +165,7 @@ export function renderGraph(projectData, viewType) {
             state.paper.unfreeze();
         }
         updateLinkStyles();
+        rebuildSelectionIndex();
         clearSelection();
         syncPaperToContent({
             resetView: state.isLargeGraph
@@ -173,6 +185,7 @@ export function renderGraph(projectData, viewType) {
         if (state.paper.unfreeze) {
             state.paper.unfreeze();
         }
+        rebuildSelectionIndex();
         clearSelection();
         syncPaperToContent({
             resetView: state.isLargeGraph
@@ -198,7 +211,18 @@ export function renderGraph(projectData, viewType) {
         elementsById.set(node.id, element);
     });
 
-    const links = graphData.edges.map(edge => createLinkElement(edge));
+    const nodeById = new Map(nodesToRender.map(node => [node.id, node]));
+    const filteredEdges = viewType === 'group'
+        ? graphData.edges.filter((edge) => {
+            const sourceNode = nodeById.get(edge.source);
+            const targetNode = nodeById.get(edge.target);
+            if (!sourceNode || !targetNode) return false;
+            if (sourceNode.kind !== 'groupobject' || targetNode.kind !== 'groupobject') return true;
+            if (!sourceNode.parent_id || !targetNode.parent_id) return true;
+            return sourceNode.parent_id !== targetNode.parent_id;
+        })
+        : graphData.edges;
+    const links = filteredEdges.map(edge => createLinkElement(edge));
     elements.forEach(element => element.set('z', zForElement(element.get('kind'), viewType)));
     const linkZ = viewType === 'group' ? 5 : -1;
     links.forEach(link => link.set('z', linkZ));
@@ -226,6 +250,7 @@ export function renderGraph(projectData, viewType) {
         state.paper.unfreeze();
     }
     updateLinkStyles();
+    rebuildSelectionIndex();
     clearSelection();
 
     syncPaperToContent({
@@ -258,6 +283,15 @@ function buildDeviceGraphData(projectData) {
     if (!graph || !Array.isArray(graph.nodes)) {
         return { nodes: [], edges: [] };
     }
+    if (state.deviceGraphCacheProject !== state.currentProject) {
+        state.deviceGraphCache.clear();
+        state.deviceGraphCacheProject = state.currentProject;
+    }
+    const cacheKey = buildDeviceCacheKey();
+    const cached = state.deviceGraphCache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
     const allowedAddresses = new Set();
     if (Array.isArray(projectData.devices) && projectData.devices.length) {
         projectData.devices.forEach((device) => {
@@ -273,6 +307,30 @@ function buildDeviceGraphData(projectData) {
         const addr = node.properties && node.properties.address ? node.properties.address : '';
         return allowedAddresses.has(addr);
     });
+    const addressInGraph = new Set(
+        deviceNodes.map((node) => (node.properties && node.properties.address ? node.properties.address : ''))
+            .filter(Boolean)
+    );
+    if (Array.isArray(projectData.devices)) {
+        projectData.devices.forEach((device) => {
+            const address = device && device.individual_address ? device.individual_address : '';
+            if (!address || !allowedAddresses.has(address)) return;
+            if (addressInGraph.has(address)) return;
+            const clean = String(address).replace(/[/.]/g, '_');
+            deviceNodes.push({
+                id: clean ? `device_${clean}` : `device_${deviceNodes.length}`,
+                kind: 'device',
+                label: device.name || address,
+                properties: {
+                    address,
+                    name: device.name || '',
+                    manufacturer: device.manufacturer || '',
+                    product: device.product || ''
+                }
+            });
+            addressInGraph.add(address);
+        });
+    }
     const allowedDeviceIds = new Set(deviceNodes.map((node) => node.id));
 
     const gaToDevices = new Map();
@@ -330,7 +388,22 @@ function buildDeviceGraphData(projectData) {
         }
     }));
 
-    return { nodes: deviceNodes, edges };
+    const result = { nodes: deviceNodes, edges };
+    state.deviceGraphCache.set(cacheKey, result);
+    return result;
+}
+
+function buildDeviceCacheKey() {
+    const projectId = state.currentProject && state.currentProject.project_name
+        ? state.currentProject.project_name
+        : 'project';
+    const filters = state.filters || {};
+    return [
+        projectId,
+        filters.area || 'all',
+        filters.line || 'all',
+        filters.deviceManufacturer || 'all'
+    ].join('|');
 }
 
 function buildTopologyGraphData(projectData) {
@@ -495,7 +568,7 @@ export function createNodeElement(node) {
         const isTx = node.properties && node.properties.is_transmitter === 'true';
         const isRx = node.properties && node.properties.is_receiver === 'true';
         const fill = isTx ? theme.objectFillTx : theme.objectFill;
-        const addressColor = isTx ? theme.accent : (isRx ? theme.ink : theme.muted);
+        const addressColor = theme.ink;
         const element = new joint.shapes.knx.GroupObject({
             id: node.id,
             kind: node.kind,

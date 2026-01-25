@@ -248,6 +248,9 @@ pub fn generate_topology_graph(project: &KnxProjectData) -> GraphModel {
                 if let Some(comment) = &info.comment {
                     properties.insert("comment".to_string(), comment.clone());
                 }
+                if let Some(status) = &info.completion_status {
+                    properties.insert("completion_status".to_string(), status.clone());
+                }
             }
 
             let area_label = if area_key == "unknown" {
@@ -292,6 +295,9 @@ pub fn generate_topology_graph(project: &KnxProjectData) -> GraphModel {
                 }
                 if let Some(medium) = &info.medium_type {
                     properties.insert("medium".to_string(), medium.clone());
+                }
+                if let Some(status) = &info.completion_status {
+                    properties.insert("completion_status".to_string(), status.clone());
                 }
             }
 

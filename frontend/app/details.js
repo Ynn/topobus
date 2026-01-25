@@ -4,6 +4,299 @@ import { registerSelectionListener, selectCell } from './selection.js';
 import { focusCell } from './interactions.js';
 import { formatDatapointType } from './dpt.js';
 
+const lastTabByKind = new Map();
+
+function createSection(title) {
+    const section = document.createElement('div');
+    section.className = 'panel-section';
+    const h3 = document.createElement('h3');
+    h3.textContent = title;
+    section.appendChild(h3);
+    return section;
+}
+
+function addRow(section, label, value) {
+    if (value == null || value === '') return;
+    const row = document.createElement('div');
+    row.className = 'panel-row';
+
+    const labelEl = document.createElement('label');
+    labelEl.textContent = label;
+    row.appendChild(labelEl);
+
+    const valueEl = document.createElement('div');
+    valueEl.className = 'panel-value';
+    valueEl.textContent = value;
+
+    row.appendChild(valueEl);
+    section.appendChild(row);
+}
+
+function resetPropertiesTabs(dom) {
+    if (!dom || !dom.propertiesTabs) return;
+    dom.propertiesTabs.innerHTML = '';
+    const tab = document.createElement('div');
+    tab.className = 'prop-tab active';
+    const icon = document.createElement('span');
+    icon.className = 'icon';
+    icon.textContent = 'ℹ️';
+    const label = document.createElement('span');
+    label.textContent = 'Info';
+    tab.appendChild(icon);
+    tab.appendChild(label);
+    dom.propertiesTabs.appendChild(tab);
+}
+
+function appendTabContent(panel, content) {
+    if (!content) return;
+    if (Array.isArray(content)) {
+        content.forEach((node) => {
+            if (node) panel.appendChild(node);
+        });
+        return;
+    }
+    panel.appendChild(content);
+}
+
+function renderDetailsTabs(dom, container, kind, tabs) {
+    if (!tabs || !tabs.length) return;
+    const tabBar = dom && dom.propertiesTabs ? dom.propertiesTabs : null;
+    if (!tabBar) {
+        appendTabContent(container, tabs[0].content);
+        return;
+    }
+
+    tabBar.innerHTML = '';
+    const panels = [];
+    const buttons = [];
+
+    const remembered = lastTabByKind.get(kind);
+    let activeIndex = tabs.findIndex((tab) => tab.key === remembered);
+    if (activeIndex < 0) activeIndex = 0;
+
+    const activateTab = (index) => {
+        buttons.forEach((btn, idx) => {
+            const isActive = idx === index;
+            btn.classList.toggle('active', isActive);
+            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+        panels.forEach((panel, idx) => {
+            panel.classList.toggle('active', idx === index);
+        });
+        if (tabs[index]) {
+            lastTabByKind.set(kind, tabs[index].key);
+        }
+    };
+
+    tabs.forEach((tab, idx) => {
+        const tabEl = document.createElement('div');
+        tabEl.className = 'prop-tab';
+        tabEl.setAttribute('role', 'tab');
+        tabEl.setAttribute('aria-selected', idx === activeIndex ? 'true' : 'false');
+        tabEl.dataset.tab = tab.key;
+
+        const icon = document.createElement('span');
+        icon.className = 'icon';
+        icon.textContent = tab.icon || 'ℹ️';
+        const label = document.createElement('span');
+        label.textContent = tab.label || 'Info';
+        tabEl.appendChild(icon);
+        tabEl.appendChild(label);
+        tabBar.appendChild(tabEl);
+        buttons.push(tabEl);
+
+        const panel = document.createElement('div');
+        panel.className = 'panel-tab-panel';
+        panel.dataset.tabPanel = tab.key;
+        appendTabContent(panel, tab.content);
+        container.appendChild(panel);
+        panels.push(panel);
+
+        tabEl.addEventListener('click', () => activateTab(idx));
+    });
+
+    activateTab(activeIndex);
+}
+
+function buildPanelList() {
+    const list = document.createElement('div');
+    list.className = 'panel-list';
+    return list;
+}
+
+function buildGroupObjectsSection(links, children, addresses) {
+    const linkCount = links.length;
+    const section = createSection(`Group Objects${linkCount ? ` (${linkCount})` : ''}`);
+    if (!linkCount) {
+        addRow(section, 'Group Objects', String(children.length));
+        addRow(section, 'Group Addresses', String(addresses.length));
+        return section;
+    }
+
+    const list = buildPanelList();
+    const sortedLinks = [...links].sort((a, b) => {
+        const ga = String(a.group_address || '').localeCompare(String(b.group_address || ''), undefined, { numeric: true });
+        if (ga !== 0) return ga;
+        return String(a.object_name || '').localeCompare(String(b.object_name || ''), undefined, { numeric: true });
+    });
+    sortedLinks.forEach((link) => {
+        const item = document.createElement('div');
+        item.className = 'panel-item';
+
+        const line1 = document.createElement('div');
+        line1.className = 'panel-item-title';
+        line1.textContent = link.object_name;
+
+        const line2 = document.createElement('div');
+        line2.className = 'panel-item-meta';
+
+        const gaSpan = document.createElement('span');
+        gaSpan.className = 'panel-tag ga-tag';
+        gaSpan.textContent = link.group_address;
+
+        const flagsSpan = document.createElement('span');
+        flagsSpan.className = 'panel-item-flags';
+        if (link.flags) {
+            const f = link.flags;
+            const active = [];
+            if (f.communication) active.push('C');
+            if (f.read) active.push('R');
+            if (f.write) active.push('W');
+            if (f.transmit) active.push('T');
+            if (f.update) active.push('U');
+            if (f.read_on_init) active.push('I');
+            flagsSpan.textContent = active.join(' ');
+        } else if (link.flags_text) {
+            flagsSpan.textContent = link.flags_text;
+        }
+
+        line2.appendChild(gaSpan);
+        if (flagsSpan.textContent) {
+            line2.appendChild(flagsSpan);
+        }
+
+        item.appendChild(line1);
+        item.appendChild(line2);
+        list.appendChild(item);
+    });
+    section.appendChild(list);
+    return section;
+}
+
+function extractConfigEntries(deviceInfo) {
+    if (!deviceInfo) return [];
+    if (Array.isArray(deviceInfo.configuration_entries) && deviceInfo.configuration_entries.length) {
+        return deviceInfo.configuration_entries;
+    }
+    const fallback = deviceInfo.configuration || {};
+    return Object.entries(fallback).map(([name, value]) => ({
+        name,
+        value: value != null ? String(value) : '',
+        ref_id: null,
+        source: null
+    }));
+}
+
+function buildParametersSection(entries) {
+    const section = createSection(`Parameters${entries.length ? ` (${entries.length})` : ''}`);
+    if (!entries.length) {
+        const empty = document.createElement('div');
+        empty.className = 'panel-empty';
+        empty.textContent = 'No parameters available.';
+        section.appendChild(empty);
+        return section;
+    }
+
+    const list = buildPanelList();
+    const sortedEntries = [...entries].sort((a, b) => {
+        return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+    });
+    sortedEntries.forEach((entry) => {
+        const item = document.createElement('div');
+        item.className = 'panel-item';
+
+        const title = document.createElement('div');
+        title.className = 'panel-item-title';
+        title.textContent = entry.name || 'Parameter';
+
+        const meta = document.createElement('div');
+        meta.className = 'panel-item-meta';
+
+        const value = document.createElement('span');
+        value.className = 'panel-item-value';
+        value.textContent = entry.value != null ? String(entry.value) : '';
+        meta.appendChild(value);
+
+        const tags = document.createElement('span');
+        tags.className = 'panel-item-tags';
+        if (entry.source) {
+            const tag = document.createElement('span');
+            tag.className = 'panel-tag';
+            tag.textContent = entry.source;
+            tags.appendChild(tag);
+        }
+        if (entry.ref_id) {
+            const tag = document.createElement('span');
+            tag.className = 'panel-tag';
+            tag.textContent = entry.ref_id;
+            tags.appendChild(tag);
+        }
+        if (tags.children.length) {
+            meta.appendChild(tags);
+        }
+
+        item.appendChild(title);
+        item.appendChild(meta);
+        list.appendChild(item);
+    });
+    section.appendChild(list);
+    return section;
+}
+
+function resolveGroupAddressInfo(address) {
+    const project = state.currentProject;
+    if (!project || !Array.isArray(project.group_addresses)) return null;
+    return project.group_addresses.find((ga) => ga.address === address) || null;
+}
+
+function buildLinkedDevicesSection(address) {
+    const info = resolveGroupAddressInfo(address);
+    const devices = info && Array.isArray(info.linked_devices) ? info.linked_devices : [];
+    const section = createSection(`Linked Devices${devices.length ? ` (${devices.length})` : ''}`);
+    if (!devices.length) {
+        const empty = document.createElement('div');
+        empty.className = 'panel-empty';
+        empty.textContent = 'No linked devices.';
+        section.appendChild(empty);
+        return section;
+    }
+
+    const list = buildPanelList();
+    const sortedDevices = [...devices].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    sortedDevices.forEach((deviceAddress) => {
+        const device = state.deviceIndex ? state.deviceIndex.get(deviceAddress) : null;
+        const item = document.createElement('div');
+        item.className = 'panel-item';
+
+        const title = document.createElement('div');
+        title.className = 'panel-item-title';
+        title.textContent = deviceAddress;
+
+        const meta = document.createElement('div');
+        meta.className = 'panel-item-meta';
+        const value = document.createElement('span');
+        value.className = 'panel-item-value';
+        value.textContent = device && device.name ? device.name : '';
+        meta.appendChild(value);
+
+        item.appendChild(title);
+        item.appendChild(meta);
+        list.appendChild(item);
+    });
+    section.appendChild(list);
+    return section;
+}
+
 export function updateDetailsPanel(cell) {
     const dom = getDom();
     if (!dom || !dom.detailsContent) return;
@@ -18,6 +311,7 @@ export function updateDetailsPanel(cell) {
 
     if (!cell) {
         container.innerHTML = '<div class="empty-state">Select a node to view properties</div>';
+        resetPropertiesTabs(dom);
         return;
     }
 
@@ -50,32 +344,6 @@ export function updateDetailsPanel(cell) {
 
     container.appendChild(header);
 
-    const createSection = (title) => {
-        const section = document.createElement('div');
-        section.className = 'panel-section';
-        const h3 = document.createElement('h3');
-        h3.textContent = title;
-        section.appendChild(h3);
-        return section;
-    };
-
-    const addRow = (section, label, value) => {
-        if (!value) return;
-        const row = document.createElement('div');
-        row.className = 'panel-row';
-
-        const labelEl = document.createElement('label');
-        labelEl.textContent = label;
-        row.appendChild(labelEl);
-
-        const valueEl = document.createElement('div');
-        valueEl.className = 'panel-value';
-        valueEl.textContent = value;
-
-        row.appendChild(valueEl);
-        section.appendChild(row);
-    };
-
     if (kind === 'composite-ga') {
         const infoSection = createSection('Group Address');
         addRow(infoSection, 'Address', cell.get('groupAddress') || props.address || fullAddress);
@@ -89,7 +357,9 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'Middle Group', props.middle_name);
         addRow(infoSection, 'Middle Description', props.middle_description);
         addRow(infoSection, 'Middle Comment', props.middle_comment);
-        container.appendChild(infoSection);
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] }
+        ]);
         return;
     }
 
@@ -108,7 +378,9 @@ export function updateDetailsPanel(cell) {
             addRow(infoSection, 'Description', original.properties.description);
             addRow(infoSection, 'Comment', original.properties.comment);
         }
-        container.appendChild(infoSection);
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] }
+        ]);
         return;
     }
 
@@ -118,7 +390,10 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'Name', props.name || fullName);
         addRow(infoSection, 'Description', props.description);
         addRow(infoSection, 'Comment', props.comment);
-        container.appendChild(infoSection);
+        addRow(infoSection, 'Completion', props.completion_status);
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] }
+        ]);
         return;
     }
 
@@ -129,7 +404,10 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'Description', props.description);
         addRow(infoSection, 'Comment', props.comment);
         addRow(infoSection, 'Connection Type', props.medium);
-        container.appendChild(infoSection);
+        addRow(infoSection, 'Completion', props.completion_status);
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] }
+        ]);
         return;
     }
 
@@ -146,7 +424,14 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'Middle Group', props.middle_name);
         addRow(infoSection, 'Middle Description', props.middle_description);
         addRow(infoSection, 'Middle Comment', props.middle_comment);
-        container.appendChild(infoSection);
+        const groupAddress = props.address || fullAddress;
+        const gaInfo = resolveGroupAddressInfo(groupAddress);
+        const deviceCount = gaInfo && Array.isArray(gaInfo.linked_devices) ? gaInfo.linked_devices.length : 0;
+        const linkedSection = buildLinkedDevicesSection(groupAddress);
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] },
+            { key: 'devices', label: `Devices (${deviceCount})`, icon: '🔗', content: [linkedSection] }
+        ]);
         return;
     }
 
@@ -157,7 +442,9 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'Name', props.name || fullName);
         addRow(infoSection, 'Description', props.description);
         addRow(infoSection, 'Comment', props.comment);
-        container.appendChild(infoSection);
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] }
+        ]);
         return;
     }
 
@@ -169,13 +456,16 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'Default Line', props.default_line);
         addRow(infoSection, 'Description', props.description);
         addRow(infoSection, 'Completion', props.completion_status);
-        container.appendChild(infoSection);
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] }
+        ]);
         return;
     }
 
     if (kind === 'device' || kind === 'composite-device') {
         const deviceInfo = resolveDeviceInfo(cell, props);
         const deviceProps = deviceInfo ? mapDeviceInfoToProps(deviceInfo) : props;
+
         const infoSection = createSection('Device Info');
         addRow(infoSection, 'Name', deviceProps.name || fullName);
         addRow(infoSection, 'Address', deviceProps.address || fullAddress);
@@ -185,22 +475,35 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'Serial', deviceProps.serial_number);
         addRow(infoSection, 'Description', deviceProps.description);
         addRow(infoSection, 'Comment', deviceProps.comment);
-        addRow(infoSection, 'Application Program', deviceProps.app_program_name);
-        addRow(infoSection, 'Program Version', deviceProps.app_program_version);
-        addRow(infoSection, 'Program Number', deviceProps.app_program_number);
-        addRow(infoSection, 'Program Type', deviceProps.app_program_type);
-        addRow(infoSection, 'Mask Version', deviceProps.app_mask_version);
-        addRow(infoSection, 'Connection Type', deviceProps.medium);
-        addRow(infoSection, 'Segment Number', deviceProps.segment_number);
-        addRow(infoSection, 'Segment Id', deviceProps.segment_id);
-        addRow(infoSection, 'Segment Medium', deviceProps.segment_medium);
-        addRow(infoSection, 'Segment Domain', deviceProps.segment_domain_address);
-        addRow(infoSection, 'IP Assignment', deviceProps.ip_assignment);
-        addRow(infoSection, 'IP Address', deviceProps.ip_address);
-        addRow(infoSection, 'Subnet Mask', deviceProps.ip_subnet_mask);
-        addRow(infoSection, 'Default Gateway', deviceProps.ip_default_gateway);
-        addRow(infoSection, 'MAC Address', deviceProps.mac_address);
-        container.appendChild(infoSection);
+        addRow(infoSection, 'Last Modified', deviceProps.last_modified);
+        addRow(infoSection, 'Last Download', deviceProps.last_download);
+
+        const infoSections = [infoSection];
+
+        const programSection = createSection('Application Program');
+        addRow(programSection, 'Program', deviceProps.app_program_name);
+        addRow(programSection, 'Version', deviceProps.app_program_version);
+        addRow(programSection, 'Number', deviceProps.app_program_number);
+        addRow(programSection, 'Type', deviceProps.app_program_type);
+        addRow(programSection, 'Mask Version', deviceProps.app_mask_version);
+        if (programSection.childElementCount > 1) {
+            infoSections.push(programSection);
+        }
+
+        const networkSection = createSection('Network');
+        addRow(networkSection, 'Connection Type', deviceProps.medium);
+        addRow(networkSection, 'Segment Number', deviceProps.segment_number);
+        addRow(networkSection, 'Segment Id', deviceProps.segment_id);
+        addRow(networkSection, 'Segment Medium', deviceProps.segment_medium);
+        addRow(networkSection, 'Segment Domain', deviceProps.segment_domain_address);
+        addRow(networkSection, 'IP Assignment', deviceProps.ip_assignment);
+        addRow(networkSection, 'IP Address', deviceProps.ip_address);
+        addRow(networkSection, 'Subnet Mask', deviceProps.ip_subnet_mask);
+        addRow(networkSection, 'Default Gateway', deviceProps.ip_default_gateway);
+        addRow(networkSection, 'MAC Address', deviceProps.mac_address);
+        if (networkSection.childElementCount > 1) {
+            infoSections.push(networkSection);
+        }
 
         const links = deviceInfo && Array.isArray(deviceInfo.group_links)
             ? deviceInfo.group_links
@@ -211,73 +514,19 @@ export function updateDetailsPanel(cell) {
             : [];
         const addresses = Array.from(new Set(children.map((el) => el.get('groupAddress')).filter(Boolean)));
 
-        if (links.length > 0) {
-            const linkCount = links.length;
-            const linksSection = createSection(`Group Objects (${linkCount})`);
+        const groupObjectsSection = buildGroupObjectsSection(links, children, addresses);
+        const configEntries = extractConfigEntries(deviceInfo);
+        const paramsSection = buildParametersSection(configEntries);
 
-            const list = document.createElement('div');
-            list.className = 'objects-list';
-            list.style.display = 'flex';
-            list.style.flexDirection = 'column';
-            list.style.gap = '8px';
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: infoSections },
+            { key: 'objects', label: `Objects (${links.length})`, icon: '🧩', content: [groupObjectsSection] },
+            { key: 'params', label: `Parameters (${configEntries.length})`, icon: '⚙️', content: [paramsSection] }
+        ]);
+        return;
+    }
 
-            links.forEach(link => {
-                const item = document.createElement('div');
-                item.className = 'object-item';
-                item.style.padding = '8px';
-                item.style.background = '#fff';
-                item.style.border = '1px solid var(--border)';
-                item.style.borderRadius = '6px';
-                item.style.fontSize = '0.85rem';
-
-                const line1 = document.createElement('div');
-                line1.style.fontWeight = '600';
-                line1.style.color = 'var(--ink)';
-                line1.style.marginBottom = '2px';
-                line1.textContent = link.object_name;
-
-                const line2 = document.createElement('div');
-                line2.style.color = 'var(--muted)';
-                line2.style.fontSize = '0.75rem';
-                line2.style.display = 'flex';
-                line2.style.justifyContent = 'space-between';
-
-                const gaSpan = document.createElement('span');
-                gaSpan.className = 'panel-tag ga-tag';
-                gaSpan.textContent = link.group_address;
-                gaSpan.style.margin = '0';
-
-                const flagsSpan = document.createElement('span');
-                if (link.flags) {
-                    const f = link.flags;
-                    const active = [];
-                    if (f.communication) active.push('C');
-                    if (f.read) active.push('R');
-                    if (f.write) active.push('W');
-                    if (f.transmit) active.push('T');
-                    if (f.update) active.push('U');
-                    flagsSpan.textContent = active.join(' ');
-                } else if (link.flags_text) {
-                    flagsSpan.textContent = link.flags_text;
-                }
-
-                line2.appendChild(gaSpan);
-                line2.appendChild(flagsSpan);
-
-                item.appendChild(line1);
-                item.appendChild(line2);
-                list.appendChild(item);
-            });
-            linksSection.appendChild(list);
-            container.appendChild(linksSection);
-        } else {
-            const statsSection = createSection('Statistics');
-            addRow(statsSection, 'Group Objects', String(children.length));
-            addRow(statsSection, 'Group Addresses', String(addresses.length));
-            container.appendChild(statsSection);
-        }
-
-    } else if (kind === 'groupobject') {
+    if (kind === 'groupobject') {
         const infoSection = createSection('Object Details');
         addRow(infoSection, 'Number', props.number);
         addRow(infoSection, 'Function Text', props.object_function_text);
@@ -286,7 +535,6 @@ export function updateDetailsPanel(cell) {
         addRow(infoSection, 'Datapoint', formatDatapointType(props.datapoint_type));
         addRow(infoSection, 'Description', props.description);
         addRow(infoSection, 'Comment', props.comment);
-        container.appendChild(infoSection);
 
         const settingsSection = createSection('Settings');
         if (props.flags) {
@@ -317,7 +565,10 @@ export function updateDetailsPanel(cell) {
         addRow(settingsSection, 'Security', props.security);
         addRow(settingsSection, 'Building Function', props.building_function);
         addRow(settingsSection, 'Building Part', props.building_part);
-        container.appendChild(settingsSection);
+        const tabs = [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] },
+            { key: 'settings', label: 'Settings', icon: '⚙️', content: [settingsSection] }
+        ];
 
         const parentId = cell.get('parent');
         if (parentId && state.graph) {
@@ -332,9 +583,11 @@ export function updateDetailsPanel(cell) {
                     focusCell(parent);
                 };
                 linkSection.appendChild(link);
-                container.appendChild(linkSection);
+                tabs.push({ key: 'parent', label: 'Parent', icon: '🔗', content: [linkSection] });
             }
         }
+        renderDetailsTabs(dom, container, kind, tabs);
+        return;
     } else {
         const infoSection = createSection('Properties');
         Object.entries(props).forEach(([k, v]) => {
@@ -342,7 +595,9 @@ export function updateDetailsPanel(cell) {
             const value = k === 'datapoint_type' ? formatDatapointType(v) : v;
             addRow(infoSection, k, value);
         });
-        container.appendChild(infoSection);
+        renderDetailsTabs(dom, container, kind, [
+            { key: 'info', label: 'Info', icon: 'ℹ️', content: [infoSection] }
+        ]);
     }
 }
 

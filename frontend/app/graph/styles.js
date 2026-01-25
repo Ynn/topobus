@@ -1,6 +1,9 @@
 import { state } from '../state.js';
 import { readTheme } from '../theme.js';
 
+const highlightedElements = new Set();
+const highlightedLinks = new Set();
+
 export function zForElement(kind, viewType) {
     if (viewType === 'group' || viewType === 'device') {
         if (kind === 'groupobject') return 10;
@@ -36,15 +39,17 @@ export function applyLinkStyle(link, theme, highlighted) {
     }
 
     const strongHighlight = highlighted && state.currentView === 'group';
-    const stroke = highlighted ? theme.accent : (isDirected ? theme.accent : theme.muted);
-    const strokeWidth = strongHighlight ? 4.2 : (highlighted ? 3 : (isAggregate ? 2.2 : 1.6));
-    const dash = strongHighlight ? '' : (isAggregate ? '' : (isDirected ? '6 4' : '2 6'));
+    const summaryHighlight = highlighted && state.groupSummaryMode && isAggregate;
+    const stroke = summaryHighlight ? (theme.accentStrong || theme.accent)
+        : (highlighted ? theme.accent : (isDirected ? theme.accent : theme.muted));
+    const strokeWidth = summaryHighlight ? 5.2 : (strongHighlight ? 4.2 : (highlighted ? 3 : (isAggregate ? 2.2 : 1.6)));
+    const dash = summaryHighlight ? '' : (strongHighlight ? '' : (isAggregate ? '' : (isDirected ? '6 4' : '2 6')));
     link.attr('line/stroke', stroke);
     link.attr('line/strokeWidth', strokeWidth);
     link.attr('line/strokeDasharray', dash);
-    link.attr('line/strokeLinecap', strongHighlight ? 'round' : 'butt');
+    link.attr('line/strokeLinecap', (strongHighlight || summaryHighlight) ? 'round' : 'butt');
     link.attr('line/targetMarker', isAggregate ? { type: 'none' } : { type: 'path', d: '' });
-    link.attr('line/opacity', strongHighlight ? 1 : (highlighted ? 0.9 : 0.65));
+    link.attr('line/opacity', summaryHighlight ? 1 : (strongHighlight ? 1 : (highlighted ? 0.9 : 0.65)));
     link.attr('line/visibility', visible ? 'visible' : 'hidden');
 }
 
@@ -68,7 +73,7 @@ export function applyElementStyle(element, theme, selected) {
         const isTx = element.get('isTransmitter');
         const isRx = element.get('isReceiver');
         const fill = isTx ? theme.objectFillTx : theme.objectFill;
-        const addressColor = isTx ? theme.accent : (isRx ? theme.ink : theme.muted);
+        const addressColor = theme.ink;
         element.attr('body/fill', fill);
         element.attr('body/stroke', selected ? theme.accent : theme.objectBorder);
         element.attr('body/strokeWidth', selected ? 2 : 1.5);
@@ -81,6 +86,7 @@ export function applyElementStyle(element, theme, selected) {
         element.attr('body/stroke', selected ? theme.accent : theme.areaBorder);
         element.attr('body/strokeWidth', selected ? 2.6 : 2);
         element.attr('header/fill', theme.lineFill);
+        element.attr('label/fill', theme.ink);
         return;
     }
 
@@ -89,6 +95,7 @@ export function applyElementStyle(element, theme, selected) {
         element.attr('body/stroke', selected ? theme.accent : theme.lineBorder);
         element.attr('body/strokeWidth', selected ? 2.2 : 1.6);
         element.attr('header/fill', theme.areaFill);
+        element.attr('label/fill', theme.ink);
         return;
     }
 
@@ -97,6 +104,7 @@ export function applyElementStyle(element, theme, selected) {
         element.attr('body/stroke', selected ? theme.accent : theme.objectBorder);
         element.attr('body/strokeWidth', selected ? 2.2 : 1.4);
         element.attr('header/fill', theme.objectFillTx);
+        element.attr('label/fill', theme.ink);
         return;
     }
 
@@ -109,14 +117,18 @@ export function applyElementStyle(element, theme, selected) {
     }
 
     if (kind === 'area') {
+        element.attr('body/fill', theme.areaFill);
         element.attr('body/stroke', selected ? theme.accent : theme.areaBorder);
         element.attr('body/strokeWidth', selected ? 3 : 2.5);
+        element.attr('header/fill', theme.lineFill);
         return;
     }
 
     if (kind === 'line') {
+        element.attr('body/fill', theme.lineFill);
         element.attr('body/stroke', selected ? theme.accent : theme.lineBorder);
         element.attr('body/strokeWidth', selected ? 2.6 : 2);
+        element.attr('header/fill', theme.areaFill);
         return;
     }
 
@@ -133,222 +145,256 @@ export function applySelectionStyles() {
     const { graph, selectedCellId } = state;
     if (!graph) return;
     const theme = readTheme();
-    const elements = graph.getElements();
-    const links = graph.getLinks();
-
-    elements.forEach((element) => applyElementStyle(element, theme, false));
-    links.forEach((link) => applyLinkStyle(link, theme, false));
+    resetHighlights(theme);
 
     if (!selectedCellId) return;
     const selected = graph.getCell(selectedCellId);
     if (!selected) return;
 
+    const idx = state.selectionIndex || {};
     const kind = selected.get('kind');
+    const markElement = (element) => {
+        if (!element) return;
+        applyElementStyle(element, theme, true);
+        highlightedElements.add(element);
+    };
+    const markLink = (link) => {
+        if (!link) return;
+        applyLinkStyle(link, theme, true);
+        highlightedLinks.add(link);
+    };
+
     if ((kind === 'groupobject' || kind === 'composite-object') && state.groupSummaryMode) {
         const ga = selected.get('groupAddress');
-        if (!ga) return;
-        const deviceIds = new Set();
-        elements.forEach((element) => {
-            const eKind = element.get('kind');
-            if ((eKind === 'groupobject' || eKind === 'composite-object') && element.get('groupAddress') === ga) {
-                const parentId = element.get('parent');
-                if (parentId) deviceIds.add(parentId);
-            }
-        });
-        deviceIds.forEach((deviceId) => {
-            const device = graph.getCell(deviceId);
-            if (device) applyElementStyle(device, theme, true);
-        });
-        links.forEach((link) => {
-            if (!link.get('isAggregate')) return;
-            const sourceId = link.get('source') && link.get('source').id;
-            const targetId = link.get('target') && link.get('target').id;
-            if (deviceIds.has(sourceId) && deviceIds.has(targetId)) {
-                applyLinkStyle(link, theme, true);
-            }
-        });
+        const deviceIds = idx.devicesByGa ? idx.devicesByGa.get(ga) : null;
+        if (deviceIds) {
+            deviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+        }
+        if (idx.aggregateLinks && deviceIds) {
+            idx.aggregateLinks.forEach((link) => {
+                const sourceId = link.get('source') && link.get('source').id;
+                const targetId = link.get('target') && link.get('target').id;
+                if (deviceIds.has(sourceId) && deviceIds.has(targetId)) {
+                    markLink(link);
+                }
+            });
+        }
         return;
     }
 
     if (kind === 'groupobject' || kind === 'composite-object') {
         const ga = selected.get('groupAddress');
-        const parentIds = new Set();
-        elements.forEach((element) => {
-            const eKind = element.get('kind');
-            if ((eKind === 'groupobject' || eKind === 'composite-object') && element.get('groupAddress') === ga) {
-                applyElementStyle(element, theme, true);
-                const parentId = element.get('parent');
-                if (parentId) parentIds.add(parentId);
-            }
-        });
-        parentIds.forEach((parentId) => {
-            const device = graph.getCell(parentId);
-            if (device) applyElementStyle(device, theme, true);
-        });
-        links.forEach((link) => {
-            if (link.get('groupAddress') === ga) {
-                applyLinkStyle(link, theme, true);
-            }
-        });
+        const objects = idx.groupObjectsByGa ? idx.groupObjectsByGa.get(ga) : null;
+        if (objects) {
+            objects.forEach((obj) => markElement(obj));
+        } else {
+            markElement(selected);
+        }
+        const deviceIds = idx.devicesByGa ? idx.devicesByGa.get(ga) : null;
+        if (deviceIds) {
+            deviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+        }
+        const links = idx.linksByGa ? idx.linksByGa.get(ga) : null;
+        if (links) {
+            links.forEach((link) => markLink(link));
+        }
         return;
     }
 
     if ((kind === 'device' || kind === 'composite-device') && state.groupSummaryMode) {
-        applyElementStyle(selected, theme, true);
-        const aggregateLinks = links.filter((link) => link.get('isAggregate'));
-        if (!aggregateLinks.length) return;
-        const adjacency = new Map();
-        aggregateLinks.forEach((link) => {
+        markElement(selected);
+        const adjacency = idx.aggregateAdjacency || new Map();
+        const direct = adjacency.get(selected.id) || new Set();
+        const visited = new Set([selected.id, ...direct]);
+        direct.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+        const links = idx.aggregateLinks || new Set();
+        links.forEach((link) => {
             const sourceId = link.get('source') && link.get('source').id;
             const targetId = link.get('target') && link.get('target').id;
-            if (!sourceId || !targetId) return;
-            if (!adjacency.has(sourceId)) adjacency.set(sourceId, new Set());
-            if (!adjacency.has(targetId)) adjacency.set(targetId, new Set());
-            adjacency.get(sourceId).add(targetId);
-            adjacency.get(targetId).add(sourceId);
-        });
-        const visited = new Set([selected.id]);
-        const queue = [selected.id];
-        while (queue.length) {
-            const id = queue.shift();
-            const neighbors = adjacency.get(id);
-            if (!neighbors) continue;
-            neighbors.forEach((next) => {
-                if (!visited.has(next)) {
-                    visited.add(next);
-                    queue.push(next);
-                }
-            });
-        }
-        visited.forEach((deviceId) => {
-            const device = graph.getCell(deviceId);
-            if (device) applyElementStyle(device, theme, true);
-        });
-        aggregateLinks.forEach((link) => {
-            const sourceId = link.get('source') && link.get('source').id;
-            const targetId = link.get('target') && link.get('target').id;
-            if (visited.has(sourceId) && visited.has(targetId)) {
-                applyLinkStyle(link, theme, true);
+            const isDirect = (sourceId === selected.id && visited.has(targetId)) ||
+                (targetId === selected.id && visited.has(sourceId));
+            if (isDirect) {
+                markLink(link);
             }
         });
         return;
     }
 
     if ((kind === 'device' || kind === 'composite-device') && state.currentView === 'devices') {
-        applyElementStyle(selected, theme, true);
-        const adjacency = new Map();
-        links.forEach((link) => {
-            const sourceId = link.get('source') && link.get('source').id;
-            const targetId = link.get('target') && link.get('target').id;
-            if (!sourceId || !targetId) return;
-            if (!adjacency.has(sourceId)) adjacency.set(sourceId, new Set());
-            if (!adjacency.has(targetId)) adjacency.set(targetId, new Set());
-            adjacency.get(sourceId).add(targetId);
-            adjacency.get(targetId).add(sourceId);
-        });
-        const visited = new Set([selected.id]);
-        const queue = [selected.id];
-        while (queue.length) {
-            const id = queue.shift();
-            const neighbors = adjacency.get(id);
-            if (!neighbors) continue;
-            neighbors.forEach((next) => {
-                if (!visited.has(next)) {
-                    visited.add(next);
-                    queue.push(next);
-                }
-            });
-        }
+        markElement(selected);
+        const adjacency = idx.deviceAdjacency || new Map();
+        const visited = walkAdjacency(selected.id, adjacency);
+        visited.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+        const linkSet = new Set();
         visited.forEach((deviceId) => {
-            const device = graph.getCell(deviceId);
-            if (device) applyElementStyle(device, theme, true);
+            const links = idx.linksByEndpoint ? idx.linksByEndpoint.get(deviceId) : null;
+            if (links) {
+                links.forEach((link) => linkSet.add(link));
+            }
         });
-        links.forEach((link) => {
+        linkSet.forEach((link) => {
             const sourceId = link.get('source') && link.get('source').id;
             const targetId = link.get('target') && link.get('target').id;
             if (visited.has(sourceId) && visited.has(targetId)) {
-                applyLinkStyle(link, theme, true);
+                markLink(link);
             }
         });
         return;
     }
 
     if (kind === 'device' || kind === 'composite-device') {
-        applyElementStyle(selected, theme, true);
-        const childIds = new Set();
-        elements.forEach((element) => {
-            if (element.get('parent') === selected.id) {
-                childIds.add(element.id);
-                applyElementStyle(element, theme, true);
-            }
-        });
-        links.forEach((link) => {
-            const sourceId = link.get('source') && link.get('source').id;
-            const targetId = link.get('target') && link.get('target').id;
-            if (childIds.has(sourceId) || childIds.has(targetId)) {
-                applyLinkStyle(link, theme, true);
-            }
-        });
-        return;
-    }
-
-    if (kind === 'composite-main' || kind === 'composite-middle' || kind === 'composite-ga') {
-        applyElementStyle(selected, theme, true);
-        return;
-    }
-
-    if (kind === 'building-space') {
-        applyElementStyle(selected, theme, true);
-        const seen = new Set([selected.id]);
-        let updated = true;
-        while (updated) {
-            updated = false;
-            elements.forEach((element) => {
-                const parentId = element.get('parent');
-                if (parentId && seen.has(parentId) && !seen.has(element.id)) {
-                    seen.add(element.id);
-                    applyElementStyle(element, theme, true);
-                    updated = true;
+        markElement(selected);
+        const childIds = idx.childrenByDevice ? idx.childrenByDevice.get(selected.id) : null;
+        if (childIds) {
+            childIds.forEach((childId) => {
+                const child = graph.getCell(childId);
+                if (child) markElement(child);
+                const links = idx.linksByEndpoint ? idx.linksByEndpoint.get(childId) : null;
+                if (links) {
+                    links.forEach((link) => markLink(link));
                 }
             });
         }
         return;
     }
 
-    if (kind === 'area') {
-        applyElementStyle(selected, theme, true);
-        elements.forEach((element) => {
-            if (element.get('parent') === selected.id) {
-                applyElementStyle(element, theme, true);
-                elements.forEach((child) => {
-                    if (child.get('parent') === element.id) {
-                        applyElementStyle(child, theme, true);
-                    }
-                });
-            }
-        });
+    if (kind === 'composite-main' || kind === 'composite-middle' || kind === 'composite-ga') {
+        markElement(selected);
         return;
     }
 
-    if (kind === 'line') {
-        applyElementStyle(selected, theme, true);
-        elements.forEach((element) => {
-            if (element.get('parent') === selected.id) {
-                applyElementStyle(element, theme, true);
-            }
-        });
+    if (kind === 'building-space') {
+        markElement(selected);
+        const descendants = walkTree(selected.id, idx.childTree);
+        descendants.forEach((childId) => markElement(graph.getCell(childId)));
         return;
     }
 
-    if (kind === 'segment') {
-        applyElementStyle(selected, theme, true);
-        elements.forEach((element) => {
-            if (element.get('parent') === selected.id) {
-                applyElementStyle(element, theme, true);
-            }
-        });
+    if (kind === 'area' || kind === 'line' || kind === 'segment') {
+        markElement(selected);
+        const descendants = walkTree(selected.id, idx.childTree);
+        descendants.forEach((childId) => markElement(graph.getCell(childId)));
         return;
     }
 
-    applyElementStyle(selected, theme, true);
+    markElement(selected);
+}
+
+function resetHighlights(theme) {
+    highlightedElements.forEach((element) => applyElementStyle(element, theme, false));
+    highlightedLinks.forEach((link) => applyLinkStyle(link, theme, false));
+    highlightedElements.clear();
+    highlightedLinks.clear();
+}
+
+function walkAdjacency(startId, adjacency) {
+    const visited = new Set();
+    if (!startId) return visited;
+    visited.add(startId);
+    const queue = [startId];
+    while (queue.length) {
+        const id = queue.shift();
+        const neighbors = adjacency.get(id);
+        if (!neighbors) continue;
+        neighbors.forEach((next) => {
+            if (!visited.has(next)) {
+                visited.add(next);
+                queue.push(next);
+            }
+        });
+    }
+    return visited;
+}
+
+function walkTree(rootId, childMap) {
+    const visited = new Set();
+    if (!rootId || !childMap) return visited;
+    const queue = [rootId];
+    while (queue.length) {
+        const id = queue.shift();
+        const children = childMap.get(id);
+        if (!children) continue;
+        children.forEach((childId) => {
+            if (!visited.has(childId)) {
+                visited.add(childId);
+                queue.push(childId);
+            }
+        });
+    }
+    return visited;
+}
+
+function addToMapSet(map, key, value) {
+    if (!key) return;
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(value);
+}
+
+export function rebuildSelectionIndex() {
+    const { graph } = state;
+    highlightedElements.clear();
+    highlightedLinks.clear();
+    if (!graph) {
+        state.selectionIndex = null;
+        return;
+    }
+    const idx = {
+        groupObjectsByGa: new Map(),
+        devicesByGa: new Map(),
+        linksByGa: new Map(),
+        childrenByDevice: new Map(),
+        linksByEndpoint: new Map(),
+        deviceAdjacency: new Map(),
+        aggregateAdjacency: new Map(),
+        aggregateLinks: new Set(),
+        childTree: new Map()
+    };
+
+    const elements = graph.getElements();
+    elements.forEach((el) => {
+        const kind = el.get('kind');
+        if (kind === 'groupobject' || kind === 'composite-object') {
+            const ga = el.get('groupAddress');
+            if (ga) {
+                addToMapSet(idx.groupObjectsByGa, ga, el);
+            }
+            const parentId = el.get('parent');
+            if (parentId) {
+                addToMapSet(idx.childrenByDevice, parentId, el.id);
+                if (ga) {
+                    addToMapSet(idx.devicesByGa, ga, parentId);
+                }
+            }
+        }
+        const parentId = el.get('parent');
+        if (parentId) {
+            addToMapSet(idx.childTree, parentId, el.id);
+        }
+    });
+
+    const links = graph.getLinks();
+    links.forEach((link) => {
+        const sourceId = link.get('source') && link.get('source').id;
+        const targetId = link.get('target') && link.get('target').id;
+        if (sourceId) addToMapSet(idx.linksByEndpoint, sourceId, link);
+        if (targetId) addToMapSet(idx.linksByEndpoint, targetId, link);
+        if (sourceId && targetId) {
+            addToMapSet(idx.deviceAdjacency, sourceId, targetId);
+            addToMapSet(idx.deviceAdjacency, targetId, sourceId);
+        }
+        if (link.get('isAggregate')) {
+            idx.aggregateLinks.add(link);
+            if (sourceId && targetId) {
+                addToMapSet(idx.aggregateAdjacency, sourceId, targetId);
+                addToMapSet(idx.aggregateAdjacency, targetId, sourceId);
+            }
+            return;
+        }
+        const ga = link.get('groupAddress');
+        if (ga) {
+            addToMapSet(idx.linksByGa, ga, link);
+        }
+    });
+
+    state.selectionIndex = idx;
 }

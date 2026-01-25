@@ -57,6 +57,16 @@ let tableColumnKeys = [];
 let tableColumnSignature = '';
 let tableColumnWidths = new Map();
 let lastTableColumns = [];
+let tableSortedRows = [];
+let tableRowPositions = new Map();
+let tableRowHeight = 28;
+let tableVirtualMode = false;
+let tableScrollBound = false;
+let tableRenderFrame = null;
+const TABLE_VIRTUAL_THRESHOLD = 500;
+const TABLE_OVERSCAN = 12;
+let tableVisibleStart = 0;
+let tableVisibleEnd = 0;
 
 function nextTreeId() {
     treeIdCounter += 1;
@@ -347,10 +357,10 @@ function setupToolbarControls() {
             const graphVisible = dom && dom.graphView && dom.graphView.style.display !== 'none';
             if (!graphVisible) {
                 switchContentTab('graph');
-                setTimeout(() => applyFiltersAndRender(), 120);
+                setTimeout(() => applyFiltersAndRender({ force: true }), 120);
                 return;
             }
-            applyFiltersAndRender();
+            applyFiltersAndRender({ force: true });
         });
     }
     if (fullscreenBtn) {
@@ -1570,51 +1580,165 @@ function renderTableBody(data) {
     selectedTableRow = null;
     const filtered = applyTableSearch(rows);
     const sorted = applyTableSort(filtered);
-    const renderRows = () => {
-        tableRowIndex = new Map();
-        tableRowByGraphId = new Map();
-        dom.tableBody.innerHTML = sorted.map(row => {
-            tableRowIndex.set(row.id, row);
-            const graphId = row.graphId || resolveGraphIdFromRow(row);
-            if (graphId && !tableRowByGraphId.has(graphId)) {
-                tableRowByGraphId.set(graphId, row);
-            }
-            const isSelected = state.selectedId && row.id === state.selectedId;
-            const cells = tableColumnKeys.length
-                ? tableColumnKeys.map((key) => row.data[key])
-                : Object.values(row.data);
-            return `
-                <tr data-id="${row.id}"${isSelected ? ' class="selected-row"' : ''}>
-                     <td></td>
-                     <td><span class="icon">${row.icon}</span></td>
-                     ${cells.map(val => `<td>${val == null ? '' : val}</td>`).join('')}
-                </tr>
-            `;
-        }).join('');
-        if (state.selectedId) {
-            const row = dom.tableBody.querySelector(`tr[data-id="${state.selectedId}"]`);
-            if (row) {
-                selectedTableRow = row;
-            }
-        }
-        applyColumnWidths();
-    };
 
-    const loadingBusy = dom.loading && !dom.loading.classList.contains('hidden');
-    const shouldShowLoading = sorted.length > 2000 && dom.loading && !loadingBusy;
-    if (shouldShowLoading && dom.loadingMessage) {
-        dom.loadingMessage.textContent = 'Rendering table...';
+    tableRowIndex = new Map();
+    tableRowByGraphId = new Map();
+    tableRowPositions = new Map();
+    sorted.forEach((row, index) => {
+        tableRowIndex.set(row.id, row);
+        tableRowPositions.set(row.id, index);
+        const graphId = row.graphId || resolveGraphIdFromRow(row);
+        if (graphId && !tableRowByGraphId.has(graphId)) {
+            tableRowByGraphId.set(graphId, row);
+        }
+    });
+    tableSortedRows = sorted;
+
+    tableVirtualMode = sorted.length > TABLE_VIRTUAL_THRESHOLD;
+    if (tableVirtualMode) {
+        tableVisibleStart = 0;
+        tableVisibleEnd = 0;
+        bindTableScroll();
+        if (dom.tableView) {
+            dom.tableView.scrollTop = 0;
+        }
+        scheduleTableRender(true);
+    } else {
+        renderAllTableRows(sorted);
     }
-    if (shouldShowLoading) {
-        dom.loading.classList.remove('hidden');
-        requestAnimationFrame(() => {
-            renderRows();
-            dom.loading.classList.add('hidden');
-        });
+}
+
+function bindTableScroll() {
+    const dom = getDom();
+    if (!dom || !dom.tableView || tableScrollBound) return;
+    dom.tableView.addEventListener('scroll', () => {
+        if (!tableVirtualMode) return;
+        scheduleTableRender(false);
+    });
+    tableScrollBound = true;
+}
+
+function scheduleTableRender(force) {
+    if (tableRenderFrame) return;
+    tableRenderFrame = requestAnimationFrame(() => {
+        tableRenderFrame = null;
+        if (tableVirtualMode) {
+            renderVirtualTable(force);
+        }
+    });
+}
+
+function renderAllTableRows(rows) {
+    const dom = getDom();
+    if (!dom || !dom.tableBody) return;
+    const fragment = document.createDocumentFragment();
+    rows.forEach((row, index) => {
+        fragment.appendChild(buildTableRow(row, index));
+    });
+    dom.tableBody.innerHTML = '';
+    dom.tableBody.appendChild(fragment);
+    if (state.selectedId) {
+        const row = dom.tableBody.querySelector(`tr[data-id="${state.selectedId}"]`);
+        if (row) {
+            selectedTableRow = row;
+        }
+    }
+    applyColumnWidths();
+}
+
+function renderVirtualTable(force) {
+    const dom = getDom();
+    if (!dom || !dom.tableBody || !dom.tableView) return;
+    const total = tableSortedRows.length;
+    if (!total) {
+        dom.tableBody.innerHTML = '';
         return;
     }
+    tableRowHeight = measureTableRowHeight(dom);
+    const viewportHeight = dom.tableView.clientHeight || 1;
+    const scrollTop = dom.tableView.scrollTop || 0;
+    const start = Math.max(0, Math.floor(scrollTop / tableRowHeight) - TABLE_OVERSCAN);
+    const end = Math.min(total, Math.ceil((scrollTop + viewportHeight) / tableRowHeight) + TABLE_OVERSCAN);
+    if (!force && start === tableVisibleStart && end === tableVisibleEnd) {
+        return;
+    }
+    tableVisibleStart = start;
+    tableVisibleEnd = end;
 
-    renderRows();
+    const fragment = document.createDocumentFragment();
+    const columnCount = 2 + (tableColumnKeys.length || Object.keys(tableSortedRows[0].data || {}).length);
+    const topSpacer = createTableSpacer(start * tableRowHeight, columnCount);
+    if (topSpacer) fragment.appendChild(topSpacer);
+    for (let i = start; i < end; i += 1) {
+        fragment.appendChild(buildTableRow(tableSortedRows[i], i));
+    }
+    const bottomSpacer = createTableSpacer((total - end) * tableRowHeight, columnCount);
+    if (bottomSpacer) fragment.appendChild(bottomSpacer);
+
+    dom.tableBody.innerHTML = '';
+    dom.tableBody.appendChild(fragment);
+    if (state.selectedId) {
+        const row = dom.tableBody.querySelector(`tr[data-id="${state.selectedId}"]`);
+        if (row) {
+            selectedTableRow = row;
+        }
+    }
+    applyColumnWidths();
+}
+
+function measureTableRowHeight(dom) {
+    const container = dom.tableView;
+    if (container) {
+        const computed = getComputedStyle(container);
+        const val = parseFloat(computed.getPropertyValue('--table-row-height'));
+        if (Number.isFinite(val) && val > 0) {
+            return val;
+        }
+    }
+    const row = dom.tableBody.querySelector('tr.table-row');
+    if (row) {
+        const rect = row.getBoundingClientRect();
+        if (rect && rect.height) return rect.height;
+    }
+    return tableRowHeight || 28;
+}
+
+function createTableSpacer(height, columnCount) {
+    if (!height || height < 1) return null;
+    const spacer = document.createElement('tr');
+    spacer.className = 'table-spacer';
+    const cell = document.createElement('td');
+    cell.colSpan = columnCount;
+    cell.style.height = `${height}px`;
+    spacer.appendChild(cell);
+    return spacer;
+}
+
+function buildTableRow(row, index) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = row.id;
+    tr.className = `table-row ${index % 2 === 0 ? 'row-even' : 'row-odd'}`;
+    if (state.selectedId && row.id === state.selectedId) {
+        tr.classList.add('selected-row');
+    }
+    const emptyCell = document.createElement('td');
+    tr.appendChild(emptyCell);
+    const iconCell = document.createElement('td');
+    const icon = document.createElement('span');
+    icon.className = 'icon';
+    icon.textContent = row.icon || '';
+    iconCell.appendChild(icon);
+    tr.appendChild(iconCell);
+
+    const data = row.data || {};
+    const keys = tableColumnKeys.length ? tableColumnKeys : Object.keys(data);
+    const cells = keys.map((key) => data[key]);
+    cells.forEach((value) => {
+        const td = document.createElement('td');
+        td.textContent = value == null ? '' : String(value);
+        tr.appendChild(td);
+    });
+    return tr;
 }
 
 function applyTableSearch(rows) {
@@ -1673,8 +1797,7 @@ function getTableValue(row, index) {
     if (key && row.data) {
         return row.data[key] != null ? row.data[key] : '';
     }
-    const values = Object.values(row.data || {});
-    return values[index] != null ? values[index] : '';
+    return '';
 }
 
 function compareTableValues(a, b) {
@@ -1706,6 +1829,10 @@ function syncTableSelectionFromGraph(cell) {
     if (!match) return;
     const dom = getDom();
     if (!dom || !dom.tableBody) return;
+    if (tableVirtualMode && tableRowPositions.has(match.id) && dom.tableView) {
+        ensureRowVisible(match.id, dom.tableView);
+        renderVirtualTable(true);
+    }
     const row = dom.tableBody.querySelector(`tr[data-id="${match.id}"]`);
     if (!row) return;
     if (selectedTableRow && selectedTableRow !== row) {
@@ -1714,6 +1841,20 @@ function syncTableSelectionFromGraph(cell) {
     row.classList.add('selected-row');
     selectedTableRow = row;
     selectTableItem(match);
+}
+
+function ensureRowVisible(rowId, container) {
+    const index = tableRowPositions.get(rowId);
+    if (!Number.isFinite(index)) return;
+    const rowTop = index * tableRowHeight;
+    const rowBottom = rowTop + tableRowHeight;
+    const viewTop = container.scrollTop;
+    const viewBottom = viewTop + container.clientHeight;
+    if (rowTop < viewTop) {
+        container.scrollTop = Math.max(0, rowTop - tableRowHeight * 2);
+    } else if (rowBottom > viewBottom) {
+        container.scrollTop = Math.max(0, rowBottom - container.clientHeight + tableRowHeight * 2);
+    }
 }
 
 function selectTableItem(item) {

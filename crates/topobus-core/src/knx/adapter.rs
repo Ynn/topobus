@@ -515,6 +515,7 @@ fn extract_topology_metadata(doc: &Document) -> (Vec<AreaInfo>, Vec<LineInfo>) {
             name: attr_value(&area, "Name"),
             description: attr_value(&area, "Description"),
             comment: attr_value(&area, "Comment"),
+            completion_status: attr_value(&area, "CompletionStatus"),
         });
     }
 
@@ -533,8 +534,9 @@ fn extract_topology_metadata(doc: &Document) -> (Vec<AreaInfo>, Vec<LineInfo>) {
         let medium_type = line
             .children()
             .find(|node| node.is_element() && node.tag_name().name() == "Segment")
-            .and_then(|node| node.attribute("MediumTypeRefId"))
-            .map(medium_name);
+            .and_then(|node| attr_value(&node, "MediumTypeRefId"))
+            .or_else(|| attr_value(&line, "MediumTypeRefId"))
+            .map(|value| medium_name(&value));
 
         lines.push(LineInfo {
             area,
@@ -543,6 +545,7 @@ fn extract_topology_metadata(doc: &Document) -> (Vec<AreaInfo>, Vec<LineInfo>) {
             description: attr_value(&line, "Description"),
             comment: attr_value(&line, "Comment"),
             medium_type,
+            completion_status: attr_value(&line, "CompletionStatus"),
         });
     }
 
@@ -658,15 +661,21 @@ fn extract_devices<R: Read + Seek>(
         let segment_node = device_node
             .ancestors()
             .find(|node| node.tag_name().name() == "Segment");
+        let line_node = device_node
+            .ancestors()
+            .find(|node| node.tag_name().name() == "Line");
         let segment_id = segment_node
             .and_then(|node| node.attribute("Id"))
             .map(|value| value.to_string());
         let segment_number = segment_node.and_then(|node| attr_value(&node, "Number"));
         let segment_domain_address = segment_node.and_then(|node| attr_value(&node, "DomainAddress"));
         let segment_medium_type = segment_node
-            .and_then(|node| node.attribute("MediumTypeRefId"))
-            .map(medium_name);
-        let medium_type = segment_medium_type.clone();
+            .and_then(|node| attr_value(&node, "MediumTypeRefId"))
+            .map(|value| medium_name(&value));
+        let line_medium_type = line_node
+            .and_then(|node| attr_value(&node, "MediumTypeRefId"))
+            .map(|value| medium_name(&value));
+        let medium_type = segment_medium_type.clone().or_else(|| line_medium_type.clone());
         let ip_config = device_node
             .children()
             .find(|node| node.is_element() && node.tag_name().name() == "IPConfig")
