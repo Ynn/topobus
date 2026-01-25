@@ -1842,8 +1842,13 @@ function buildTableRow(row, index) {
     const cells = keys.map((key) => data[key]);
     cells.forEach((value, idx) => {
         const key = keys[idx];
-        const td = document.createElement('td');
-        td.textContent = value == null ? '' : String(value);
+        let td = null;
+        if (row.kind === 'group-object' && key === 'group') {
+            td = buildGroupAddressCell(value);
+        } else {
+            td = document.createElement('td');
+            td.textContent = value == null ? '' : String(value);
+        }
         if (key) {
             td.dataset.field = key;
         }
@@ -1870,9 +1875,6 @@ function applyTableCellNavigation(row, key, value, cell) {
         if (key === 'deviceAddress') {
             navKind = 'device';
             navValue = String(value || '');
-        } else if (key === 'group') {
-            navKind = 'group-address';
-            navValue = normalizeGroupAddress(resolveFirstGroupAddress(value));
         }
     }
     if (!navKind && (key === 'buildingFunction' || key === 'buildingPart')) {
@@ -1979,6 +1981,17 @@ function resolveNavigationTargetFromTable(event) {
     if (!event) return null;
     const base = event.target instanceof Element ? event.target : event.target && event.target.parentElement ? event.target.parentElement : null;
     if (!base) return null;
+    const direct = base.closest('[data-nav-kind][data-nav-value]');
+    if (direct) {
+        const kind = direct.dataset.navKind || '';
+        let value = direct.dataset.navValue || '';
+        if (kind === 'group-address') {
+            value = normalizeGroupAddress(value);
+        }
+        if (kind && value) {
+            return { type: kind, address: value };
+        }
+    }
     const cell = base.closest('td');
     if (!cell) return null;
     const kind = cell.dataset.navKind || '';
@@ -1989,6 +2002,31 @@ function resolveNavigationTargetFromTable(event) {
         if (!value) return null;
     }
     return { type: kind, address: value };
+}
+
+function buildGroupAddressCell(value) {
+    const td = document.createElement('td');
+    const raw = value == null ? '' : String(value);
+    const parts = raw.split(',').map((part) => part.trim()).filter(Boolean);
+    if (!parts.length) {
+        td.textContent = raw;
+        return td;
+    }
+    parts.forEach((part, index) => {
+        const normalized = normalizeGroupAddress(part);
+        const link = document.createElement('span');
+        link.className = 'panel-link';
+        link.textContent = normalized || part;
+        if (normalized) {
+            link.dataset.navKind = 'group-address';
+            link.dataset.navValue = normalized;
+        }
+        td.appendChild(link);
+        if (index < parts.length - 1) {
+            td.appendChild(document.createTextNode(', '));
+        }
+    });
+    return td;
 }
 
 function extractGroupAddressesFromRow(row) {
