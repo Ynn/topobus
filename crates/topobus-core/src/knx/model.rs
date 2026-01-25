@@ -175,6 +175,18 @@ pub struct DeviceConfigEntry {
     pub name: String,
     /// Raw value
     pub value: String,
+    /// Optional raw value before formatting
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_raw: Option<String>,
+    /// Optional human-readable label for the value
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_label: Option<String>,
+    /// Optional parameter type label
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameter_type: Option<String>,
+    /// Optional context path (channel/block/module)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
     /// Optional reference id or code
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_id: Option<String>,

@@ -207,9 +207,6 @@ function extractConfigEntries(deviceInfo) {
     if (Array.isArray(deviceInfo.configuration_entries) && deviceInfo.configuration_entries.length) {
         return deviceInfo.configuration_entries.filter((entry) => {
             if (!entry || !entry.name) return false;
-            if (entry.source === 'Parameter') {
-                return false;
-            }
             return true;
         });
     }
@@ -229,49 +226,65 @@ function buildParametersSection(entries) {
         return section;
     }
 
-    const list = buildPanelList();
-    const sortedEntries = [...entries].sort((a, b) => {
-        return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+    const grouped = new Map();
+    entries.forEach((entry) => {
+        const key = entry.context || (entry.source === 'Property' ? 'Properties' : 'General');
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(entry);
     });
-    sortedEntries.forEach((entry) => {
-        const item = document.createElement('div');
-        item.className = 'panel-item';
 
-        const title = document.createElement('div');
-        title.className = 'panel-item-title';
-        title.textContent = entry.name || 'Parameter';
-
-        const meta = document.createElement('div');
-        meta.className = 'panel-item-meta';
-
-        const value = document.createElement('span');
-        value.className = 'panel-item-value';
-        value.textContent = entry.value != null ? String(entry.value) : '';
-        meta.appendChild(value);
-
-        const tags = document.createElement('span');
-        tags.className = 'panel-item-tags';
-        if (entry.source) {
-            const tag = document.createElement('span');
-            tag.className = 'panel-tag';
-            tag.textContent = entry.source;
-            tags.appendChild(tag);
-        }
-        if (entry.ref_id) {
-            const tag = document.createElement('span');
-            tag.className = 'panel-tag';
-            tag.textContent = entry.ref_id;
-            tags.appendChild(tag);
-        }
-        if (tags.children.length) {
-            meta.appendChild(tags);
-        }
-
-        item.appendChild(title);
-        item.appendChild(meta);
-        list.appendChild(item);
+    const groups = Array.from(grouped.entries()).sort((a, b) => {
+        return String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true });
     });
-    section.appendChild(list);
+
+    groups.forEach(([groupLabel, groupEntries]) => {
+        const groupSection = createSection(groupLabel);
+        const table = document.createElement('table');
+        table.className = 'panel-table';
+
+        const thead = document.createElement('thead');
+        thead.innerHTML = `
+            <tr>
+                <th>Parameter</th>
+                <th>Value</th>
+                <th>Type</th>
+            </tr>
+        `;
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const sortedEntries = [...groupEntries].sort((a, b) => {
+            return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+        });
+
+        sortedEntries.forEach((entry) => {
+            const rawValue = entry.value_raw != null ? String(entry.value_raw) : '';
+            const valueLabel = entry.value_label != null ? String(entry.value_label) : (entry.value != null ? String(entry.value) : '');
+            const displayValue = valueLabel || (rawValue ? `${rawValue} [RAW]` : '');
+            const row = document.createElement('tr');
+
+            const nameCell = document.createElement('td');
+            nameCell.textContent = entry.name || 'Parameter';
+            row.appendChild(nameCell);
+
+            const valueCell = document.createElement('td');
+            valueCell.textContent = displayValue;
+            if (rawValue && rawValue !== valueLabel) {
+                valueCell.title = `RAW: ${rawValue}`;
+            }
+            row.appendChild(valueCell);
+
+            const typeCell = document.createElement('td');
+            typeCell.textContent = entry.parameter_type || '';
+            row.appendChild(typeCell);
+
+            tbody.appendChild(row);
+        });
+
+        table.appendChild(tbody);
+        groupSection.appendChild(table);
+        section.appendChild(groupSection);
+    });
     return section;
 }
 

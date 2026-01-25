@@ -1,5 +1,6 @@
 import { state } from '../state.js';
 import { readTheme } from '../theme.js';
+import { stateManager } from '../state_manager.js';
 
 const highlightedElements = new Set();
 const highlightedLinks = new Set();
@@ -335,7 +336,7 @@ export function rebuildSelectionIndex() {
     highlightedElements.clear();
     highlightedLinks.clear();
     if (!graph) {
-        state.selectionIndex = null;
+        stateManager.setState('selectionIndex', null);
         return;
     }
     const idx = {
@@ -396,5 +397,5 @@ export function rebuildSelectionIndex() {
         }
     });
 
-    state.selectionIndex = idx;
+    stateManager.setState('selectionIndex', idx);
 }

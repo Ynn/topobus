@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { getDom } from './dom.js';
 import { readTheme } from './theme.js';
+import { stateManager } from './state_manager.js';
 
 export function setupMinimap() {
     const dom = getDom();
@@ -26,7 +27,7 @@ export function setupMinimap() {
 }
 
 export function setMinimapEnabled(enabled, reason) {
-    state.minimapDisabled = !enabled;
+    stateManager.setState('minimapDisabled', !enabled);
     const dom = getDom();
     if (!dom || !dom.minimap) return;
     const label = dom.minimapWrap ? dom.minimapWrap.querySelector('.minimap-label') : null;
@@ -35,7 +36,7 @@ export function setMinimapEnabled(enabled, reason) {
             label.textContent = reason ? `Minimap (${reason})` : 'Minimap (disabled)';
         }
         dom.minimap.style.display = 'none';
-        state.minimapState = null;
+        stateManager.setState('minimapState', null);
         return;
     }
     if (label) {
@@ -48,17 +49,17 @@ export function scheduleMinimap() {
     if (state.minimapDisabled) return;
     if (state.isLargeGraph) {
         if (state.minimapTimeout) return;
-        state.minimapTimeout = setTimeout(() => {
-            state.minimapTimeout = null;
+        stateManager.setState('minimapTimeout', setTimeout(() => {
+            stateManager.setState('minimapTimeout', null);
             updateMinimap();
-        }, 180);
+        }, 180));
         return;
     }
     if (state.minimapFrame) return;
-    state.minimapFrame = requestAnimationFrame(() => {
-        state.minimapFrame = null;
+    stateManager.setState('minimapFrame', requestAnimationFrame(() => {
+        stateManager.setState('minimapFrame', null);
         updateMinimap();
-    });
+    }));
 }
 
 export function updateMinimap() {
@@ -89,7 +90,7 @@ export function updateMinimap() {
     );
     const offsetX = padding - bounds.x * scale;
     const offsetY = padding - bounds.y * scale;
-    state.minimapState = { bounds, scale, offsetX, offsetY };
+    stateManager.setState('minimapState', { bounds, scale, offsetX, offsetY });
 
     elements.forEach(cell => {
         const kind = cell.get('kind');

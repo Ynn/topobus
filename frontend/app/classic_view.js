@@ -7,6 +7,7 @@ import { focusCell, fitContent, exportSvg } from './interactions.js';
 import { setSelectionFromTable } from './selection_store.js';
 import { ICON } from './ui/icons.js';
 import { formatDptLabel, resolveDptSize } from './formatters/device.js';
+import { stateManager } from './state_manager.js';
 
 // View metadata and table layouts.
 const viewConstants = {
@@ -29,7 +30,7 @@ const viewConstants = {
 };
 
 const tableLayouts = {
-    groupAddresses: ['', '', 'Address', 'Name', 'Sub', 'Description', 'Data Type', 'Length', 'Associations'],
+    groupAddresses: ['', '', 'Address', 'Name', 'Description', 'Data Type', 'Length', 'Associations'],
     groupObjects: ['', '', 'Number', 'Object', 'Device Address', 'Device', 'Function', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'C', 'R', 'W', 'T', 'U'],
     topologyAreas: ['', '', 'Area', 'Name', 'Description'],
     topologyLines: ['', '', 'Line', 'Name', 'Description', 'Medium'],
@@ -172,7 +173,7 @@ function setupSelectionLinking() {
 
 function switchViewType(viewType, force = false) {
     if (state.currentView === viewType && !force) return;
-    state.currentView = viewType;
+    stateManager.setState('currentView', viewType);
 
     const dom = getDom();
 
@@ -202,11 +203,11 @@ function switchViewType(viewType, force = false) {
     renderTableBody(tableData);
 
     // Store current table data for sorting/filtering
-    state.currentTableData = tableData;
+    stateManager.setState('currentTableData', tableData);
 
     // 5. Update Breadcrumbs (if we had them)
     // 6. Reset selection
-    state.selectedId = null;
+    stateManager.setState('selectedId', null);
     setSelectionFromTable(null); // Clear properties
 
     updateGraphModeVisibility();
@@ -446,7 +447,6 @@ function buildGroupViewData() {
         data: {
             address: ga.address,
             name: ga.name,
-            sub: extractGroupSub(ga.address),
             desc: ga.description || '',
             type: formatDptLabel(ga.datapoint_type || (fallbackMap.get(ga.address) || {}).datapoint_type),
             len: resolveDptSize(ga.datapoint_type) || (fallbackMap.get(ga.address) || {}).object_size || '',
@@ -534,7 +534,7 @@ function buildGroupViewData() {
 function buildTopologyViewData() {
     const project = state.currentProject;
     const index = buildTopologyIndex(project);
-    state.topologyIndex = index;
+    stateManager.setState('topologyIndex', index);
 
     const tableData = buildTopologyAreaRows(index);
     const treeRoot = { label: 'Topology', icon: ICON.topology, kind: 'topology-root', children: [], expanded: true };
@@ -1357,58 +1357,65 @@ function collapseTree(collapseAll) {
 }
 
 function updateGraphFiltersFromSelection(selection) {
-    state.filters.area = 'all';
-    state.filters.line = 'all';
-    state.filters.mainGroup = 'all';
-    state.filters.groupAddress = 'all';
-    state.filters.buildingSpace = 'all';
-    state.filters.deviceManufacturer = 'all';
+    const nextFilters = {
+        ...state.filters,
+        area: 'all',
+        line: 'all',
+        mainGroup: 'all',
+        groupAddress: 'all',
+        buildingSpace: 'all',
+        deviceManufacturer: 'all'
+    };
 
     if (state.currentView === 'group') {
         if (selection.kind === 'group-main') {
-            state.filters.mainGroup = selection.value;
+            nextFilters.mainGroup = selection.value;
         } else if (selection.kind === 'group-middle') {
-            state.filters.mainGroup = selection.value;
+            nextFilters.mainGroup = selection.value;
         } else if (selection.kind === 'group-address') {
-            state.filters.groupAddress = selection.value;
+            nextFilters.groupAddress = selection.value;
         }
+        stateManager.setState('filters', nextFilters);
         return;
     }
 
     if (state.currentView === 'topology') {
         if (selection.kind === 'area') {
-            state.filters.area = selection.area;
+            nextFilters.area = selection.area;
         } else if (selection.kind === 'line') {
-            state.filters.area = selection.area;
-            state.filters.line = selection.line ? `${selection.area}.${selection.line}` : 'all';
+            nextFilters.area = selection.area;
+            nextFilters.line = selection.line ? `${selection.area}.${selection.line}` : 'all';
         } else if (selection.kind === 'segment') {
-            state.filters.area = selection.area;
-            state.filters.line = selection.line ? `${selection.area}.${selection.line}` : 'all';
+            nextFilters.area = selection.area;
+            nextFilters.line = selection.line ? `${selection.area}.${selection.line}` : 'all';
         } else if (selection.kind === 'device') {
-            state.filters.area = selection.area;
-            state.filters.line = selection.line ? `${selection.area}.${selection.line}` : 'all';
+            nextFilters.area = selection.area;
+            nextFilters.line = selection.line ? `${selection.area}.${selection.line}` : 'all';
         }
+        stateManager.setState('filters', nextFilters);
         return;
     }
 
     if (state.currentView === 'devices') {
         if (selection.kind === 'device-manufacturer') {
-            state.filters.deviceManufacturer = selection.value || 'all';
+            nextFilters.deviceManufacturer = selection.value || 'all';
         } else if (selection.kind === 'device') {
             const parts = String(selection.deviceAddress || '').split('.');
             if (parts.length >= 2) {
-                state.filters.area = parts[0];
-                state.filters.line = `${parts[0]}.${parts[1]}`;
+                nextFilters.area = parts[0];
+                nextFilters.line = `${parts[0]}.${parts[1]}`;
             }
         }
+        stateManager.setState('filters', nextFilters);
         return;
     }
 
     if (state.currentView === 'buildings') {
         if (selection.kind === 'building-space' && selection.spaceId) {
-            state.filters.buildingSpace = selection.spaceId;
+            nextFilters.buildingSpace = selection.spaceId;
         }
     }
+    stateManager.setState('filters', nextFilters);
 }
 
 function filterTableByTreeSelection(selection) {
@@ -1568,11 +1575,6 @@ function buildGroupAddressObjectRows(address) {
     });
     rows.sort((a, b) => String(a.data.number || '').localeCompare(String(b.data.number || ''), undefined, { numeric: true }));
     return rows;
-}
-
-function extractGroupSub(address) {
-    const parts = splitGroupAddress(address);
-    return parts.sub || '';
 }
 
 function renderTableHeader(columns, sampleRow, keepOrder = false) {
@@ -1901,14 +1903,14 @@ function ensureRowVisible(rowId, container) {
 function selectTableItem(item, options = {}) {
     const fromGraph = options.fromGraph === true;
     if (!item) {
-        state.selectedId = null;
+        stateManager.setState('selectedId', null);
         if (!fromGraph) {
             setSelectionFromTable(null);
             selectCell(null);
         }
         return;
     }
-    state.selectedId = item.id;
+    stateManager.setState('selectedId', item.id);
     const graphCell = fromGraph ? null : resolveGraphCell(item);
     if (graphCell) {
         selectCell(graphCell);

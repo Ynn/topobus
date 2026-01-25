@@ -1,5 +1,6 @@
 import { state } from '../state.js';
 import { getDom } from '../dom.js';
+import { stateManager } from '../state_manager.js';
 
 export function startGraphLoading(message) {
     const dom = getDom();
@@ -11,7 +12,7 @@ export function startGraphLoading(message) {
     if (dom.graphView) {
         dom.graphView.classList.add('graph-loading');
     }
-    state.graphLoadingActive = true;
+    stateManager.setState('graphLoadingActive', true);
 }
 
 export function stopGraphLoading() {
@@ -25,5 +26,5 @@ export function stopGraphLoading() {
     if (dom.graphView) {
         dom.graphView.classList.remove('graph-loading');
     }
-    state.graphLoadingActive = false;
+    stateManager.setState('graphLoadingActive', false);
 }

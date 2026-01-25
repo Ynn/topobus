@@ -4,6 +4,8 @@ import { renderGraph } from './graph/render.js';
 import { startGraphLoading, stopGraphLoading } from './graph/loading.js';
 import { syncPaperToContent, updateZoomLOD } from './interactions.js';
 import { scheduleMinimap } from './minimap.js';
+import { shouldShowLoading } from './config/performance.js';
+import { stateManager } from './state_manager.js';
 
 const ALL_VALUE = 'all';
 
@@ -13,18 +15,18 @@ export function setupFilterControls() {
     if (!dom || !dom.areaFilter || !dom.lineFilter || !dom.mainGroupFilter) return;
 
     dom.areaFilter.addEventListener('change', (event) => {
-        state.filters.area = event.target.value || ALL_VALUE;
+        updateFilters({ area: event.target.value || ALL_VALUE });
         updateLineOptions();
         applyFiltersAndRender();
     });
 
     dom.lineFilter.addEventListener('change', (event) => {
-        state.filters.line = event.target.value || ALL_VALUE;
+        updateFilters({ line: event.target.value || ALL_VALUE });
         applyFiltersAndRender();
     });
 
     dom.mainGroupFilter.addEventListener('change', (event) => {
-        state.filters.mainGroup = event.target.value || ALL_VALUE;
+        updateFilters({ mainGroup: event.target.value || ALL_VALUE });
         applyFiltersAndRender();
     });
 }
@@ -39,22 +41,24 @@ export function updateFilterOptions(project) {
         return;
     }
 
-    state.filters.area = ALL_VALUE;
-    state.filters.line = ALL_VALUE;
-    state.filters.mainGroup = ALL_VALUE;
-    state.filters.groupAddress = ALL_VALUE;
-    state.filters.buildingSpace = ALL_VALUE;
-    state.filters.deviceManufacturer = ALL_VALUE;
+    updateFilters({
+        area: ALL_VALUE,
+        line: ALL_VALUE,
+        mainGroup: ALL_VALUE,
+        groupAddress: ALL_VALUE,
+        buildingSpace: ALL_VALUE,
+        deviceManufacturer: ALL_VALUE
+    });
 
     const areas = buildAreaOptions(project);
     const linesByArea = buildLineOptions(project);
     const mainGroups = buildMainGroupOptions(project);
 
-    state.filterOptions = {
+    stateManager.setState('filterOptions', {
         areas,
         lines: linesByArea,
         mainGroups
-    };
+    });
 
     populateSelect(dom.areaFilter, areas, state.filters.area);
     updateLineOptions();
@@ -69,7 +73,7 @@ export function applyFiltersAndRender(options = {}) {
     const graphVisible = dom && dom.graphView && dom.graphView.style.display !== 'none';
     if (!graphVisible) return;
     const filtered = filterProject(state.currentProject, state.filters);
-    state.filteredProject = filtered;
+    stateManager.setState('filteredProject', filtered);
     const viewType = resolveGraphViewType(state.currentView);
     const renderKey = buildGraphRenderKey(viewType);
     if (!force && state.graph && state.lastGraphKey === renderKey && state.lastGraphViewType === viewType) {
@@ -82,10 +86,8 @@ export function applyFiltersAndRender(options = {}) {
     const nodeCount = estimateGraphNodeCount(filtered, viewType);
     const edgeCount = estimateGraphEdgeCount(filtered, viewType);
     const isWideGroup = viewType === 'group' && state.filters.groupAddress === ALL_VALUE;
-    const isWideComposite = viewType === 'composite';
     const showLoading = Boolean(
-        dom && dom.loading &&
-        (nodeCount > 300 || edgeCount > 600 || (isWideGroup && nodeCount > 80) || (isWideComposite && nodeCount > 120))
+        dom && dom.loading && shouldShowLoading(nodeCount, edgeCount, viewType, { isWideGroup })
     );
     if (showLoading) {
         startGraphLoading('Rendering graph...');
@@ -96,8 +98,10 @@ export function applyFiltersAndRender(options = {}) {
     requestAnimationFrame(() => {
         try {
             renderGraph(filtered, viewType);
-            state.lastGraphKey = renderKey;
-            state.lastGraphViewType = viewType;
+            stateManager.setStatePatch({
+                lastGraphKey: renderKey,
+                lastGraphViewType: viewType
+            });
         } finally {
             if (showLoading) {
                 stopGraphLoading();
@@ -119,9 +123,14 @@ function updateLineOptions() {
     const area = state.filters.area || ALL_VALUE;
     const lines = buildLineListForArea(area);
     if (!lines.find((opt) => opt.value === state.filters.line)) {
-        state.filters.line = ALL_VALUE;
+        updateFilters({ line: ALL_VALUE });
     }
     populateSelect(dom.lineFilter, lines, state.filters.line);
+}
+
+function updateFilters(patch) {
+    const next = { ...state.filters, ...patch };
+    stateManager.setState('filters', next);
 }
 
 function populateSelect(select, options, selected) {

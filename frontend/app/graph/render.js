@@ -10,8 +10,18 @@ import { bindInteractions, fitContent, syncPaperToContent, updateZoomLOD } from 
 import { clearSelection } from '../selection.js';
 import { scheduleMinimap, setMinimapEnabled } from '../minimap.js';
 import { startGraphLoading, stopGraphLoading } from './loading.js';
+import { isLargeGraph } from '../config/performance.js';
+import { GraphCache } from '../cache/graph_cache.js';
+import { DeviceGraphBuilder } from './device_graph_builder.js';
+import { stateManager } from '../state_manager.js';
 
-const LARGE_GRAPH_THRESHOLD = 1200;
+const deviceGraphBuilder = new DeviceGraphBuilder();
+
+stateManager.subscribe('currentProject', () => {
+    if (state.deviceGraphCache instanceof GraphCache) {
+        state.deviceGraphCache.clear();
+    }
+});
 
 export function renderGraph(projectData, viewType) {
     const isBuilding = viewType === 'building';
@@ -23,8 +33,7 @@ export function renderGraph(projectData, viewType) {
             : (viewType === 'topology'
                 ? buildTopologyGraphData(projectData)
                 : projectData.group_address_graph));
-    state.currentGraphData = graphData;
-    state.currentNodeIndex = graphData && graphData.nodes
+    const nodeIndex = graphData && graphData.nodes
         ? new Map(graphData.nodes.map(node => [node.id, node]))
         : null;
     const nodeCount = isBuilding
@@ -34,7 +43,11 @@ export function renderGraph(projectData, viewType) {
                 ? graphData.nodes.filter(n => n.kind !== 'groupaddress').length
                 : graphData.nodes.length)
             : 0);
-    state.isLargeGraph = nodeCount > LARGE_GRAPH_THRESHOLD;
+    stateManager.setStatePatch({
+        currentGraphData: graphData,
+        currentNodeIndex: nodeIndex,
+        isLargeGraph: isLargeGraph(nodeCount)
+    });
     setMinimapEnabled(true);
 
     const dom = getDom();
@@ -45,7 +58,7 @@ export function renderGraph(projectData, viewType) {
         if (state.paper.stopListening) {
             state.paper.stopListening();
         }
-        state.paper = null;
+        stateManager.setState('paper', null);
     }
     if (dom && dom.paper) {
         dom.paper.innerHTML = '';
@@ -54,18 +67,20 @@ export function renderGraph(projectData, viewType) {
     const GraphModel = joint.dia.SearchGraph || joint.dia.Graph;
     const sortingMode = (joint.dia.Paper.sorting && joint.dia.Paper.sorting.APPROX) || joint.dia.Paper.sorting.EXACT;
 
-    state.graph = new GraphModel({}, {
+    stateManager.setState('graph', new GraphModel({}, {
         cellNamespace: joint.shapes,
         search: joint.dia.SearchGraph ? { type: 'quadtree' } : undefined
+    }));
+    stateManager.setStatePatch({
+        groupSummaryMode: false,
+        groupHierarchySummaryMode: false,
+        deviceSummaryMode: false,
+        groupSummaryLinks: [],
+        hiddenGroupLinks: [],
+        graphBoundsDirty: true
     });
-    state.groupSummaryMode = false;
-    state.groupHierarchySummaryMode = false;
-    state.deviceSummaryMode = false;
-    state.groupSummaryLinks = [];
-    state.hiddenGroupLinks = [];
-    state.graphBoundsDirty = true;
 
-    state.paper = new joint.dia.Paper({
+    stateManager.setState('paper', new joint.dia.Paper({
         el: dom.paper,
         model: state.graph,
         width: '100%',
@@ -77,7 +92,8 @@ export function renderGraph(projectData, viewType) {
         cellViewNamespace: joint.shapes,
         sorting: sortingMode,
         validateUnembedding: () => false,
-        interactive: state.interactiveFunc = (cellView) => {
+        interactive: (() => {
+            const handler = (cellView) => {
             const kind = cellView.model.get('kind');
             if (viewType === 'group' || viewType === 'device') {
                 if (kind === 'groupobject') {
@@ -110,8 +126,11 @@ export function renderGraph(projectData, viewType) {
                 return { elementMove: movable, linkMove: false, labelMove: false };
             }
             return { elementMove: true, linkMove: false, labelMove: false };
-        }
-    });
+            };
+            stateManager.setState('interactiveFunc', handler);
+            return handler;
+        })()
+    }));
 
     if (state.isLargeGraph) {
         state.paper.el.classList.add('is-large-graph');
@@ -131,19 +150,19 @@ export function renderGraph(projectData, viewType) {
         if (viewType === 'group') {
             scheduleLinkAlign(cell);
         }
-        state.graphBoundsDirty = true;
+        stateManager.setState('graphBoundsDirty', true);
         scheduleMinimap();
     });
     state.graph.on('change:size', () => {
-        state.graphBoundsDirty = true;
+        stateManager.setState('graphBoundsDirty', true);
         scheduleMinimap();
     });
     state.graph.on('add', () => {
-        state.graphBoundsDirty = true;
+        stateManager.setState('graphBoundsDirty', true);
         scheduleMinimap();
     });
     state.graph.on('remove', () => {
-        state.graphBoundsDirty = true;
+        stateManager.setState('graphBoundsDirty', true);
         scheduleMinimap();
     });
     state.paper.on('element:pointerup', () => {
@@ -279,131 +298,21 @@ function filterGroupViewNodes(nodes) {
 }
 
 function buildDeviceGraphData(projectData) {
-    const graph = projectData && projectData.group_address_graph ? projectData.group_address_graph : null;
-    if (!graph || !Array.isArray(graph.nodes)) {
-        return { nodes: [], edges: [] };
-    }
-    if (state.deviceGraphCacheProject !== state.currentProject) {
-        state.deviceGraphCache.clear();
-        state.deviceGraphCacheProject = state.currentProject;
-    }
-    const cacheKey = buildDeviceCacheKey();
-    const cached = state.deviceGraphCache.get(cacheKey);
-    if (cached) {
-        return cached;
-    }
-    const allowedAddresses = new Set();
-    if (Array.isArray(projectData.devices) && projectData.devices.length) {
-        projectData.devices.forEach((device) => {
-            if (device && device.individual_address) {
-                allowedAddresses.add(device.individual_address);
-            }
-        });
-    }
+    const cache = getDeviceGraphCache();
+    const cacheKey = deviceGraphBuilder.buildCacheKey(projectData, state.filters);
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
 
-    const deviceNodes = graph.nodes.filter((node) => {
-        if (node.kind !== 'device') return false;
-        if (!allowedAddresses.size) return true;
-        const addr = node.properties && node.properties.address ? node.properties.address : '';
-        return allowedAddresses.has(addr);
-    });
-    const addressInGraph = new Set(
-        deviceNodes.map((node) => (node.properties && node.properties.address ? node.properties.address : ''))
-            .filter(Boolean)
-    );
-    if (Array.isArray(projectData.devices)) {
-        projectData.devices.forEach((device) => {
-            const address = device && device.individual_address ? device.individual_address : '';
-            if (!address || !allowedAddresses.has(address)) return;
-            if (addressInGraph.has(address)) return;
-            const clean = String(address).replace(/[/.]/g, '_');
-            deviceNodes.push({
-                id: clean ? `device_${clean}` : `device_${deviceNodes.length}`,
-                kind: 'device',
-                label: device.name || address,
-                properties: {
-                    address,
-                    name: device.name || '',
-                    manufacturer: device.manufacturer || '',
-                    product: device.product || ''
-                }
-            });
-            addressInGraph.add(address);
-        });
-    }
-    const allowedDeviceIds = new Set(deviceNodes.map((node) => node.id));
-
-    const gaToDevices = new Map();
-    graph.nodes.forEach((node) => {
-        if (node.kind !== 'groupobject') return;
-        const parent = node.parent_id;
-        if (!parent || !allowedDeviceIds.has(parent)) return;
-        const ga = node.properties && node.properties.group_address ? node.properties.group_address : '';
-        if (!ga) return;
-        if (!gaToDevices.has(ga)) {
-            gaToDevices.set(ga, new Set());
-        }
-        gaToDevices.get(ga).add(parent);
-    });
-
-    const deviceCount = deviceNodes.length;
-    const maxEdges = Math.max(1500, Math.min(15000, deviceCount * 4));
-    const maxPairs = Math.max(5000, maxEdges * 3);
-    const pairMap = new Map();
-    gaToDevices.forEach((devices, ga) => {
-        const list = Array.from(devices).sort();
-        if (list.length < 2) return;
-        const hub = list[0];
-        for (let i = 1; i < list.length; i += 1) {
-            const target = list[i];
-            const [a, b] = hub < target ? [hub, target] : [target, hub];
-            const key = `${a}|${b}`;
-            let entry = pairMap.get(key);
-            if (!entry) {
-                if (pairMap.size >= maxPairs) return;
-                entry = { source: a, target: b, count: 0, addresses: [] };
-                pairMap.set(key, entry);
-            }
-            entry.count += 1;
-            if (entry.addresses.length < 6) {
-                entry.addresses.push(ga);
-            }
-        }
-    });
-
-    const entries = Array.from(pairMap.values());
-    entries.sort((a, b) => b.count - a.count);
-    const selected = entries.slice(0, maxEdges);
-
-    const edges = selected.map((entry, idx) => ({
-        id: `device_link_${idx}`,
-        source: entry.source,
-        target: entry.target,
-        kind: 'links',
-        label: null,
-        properties: {
-            direction: 'undirected',
-            link_count: String(entry.count),
-            group_addresses: entry.addresses.join(', ')
-        }
-    }));
-
-    const result = { nodes: deviceNodes, edges };
-    state.deviceGraphCache.set(cacheKey, result);
+    const result = deviceGraphBuilder.build(projectData);
+    cache.set(cacheKey, result);
     return result;
 }
 
-function buildDeviceCacheKey() {
-    const projectId = state.currentProject && state.currentProject.project_name
-        ? state.currentProject.project_name
-        : 'project';
-    const filters = state.filters || {};
-    return [
-        projectId,
-        filters.area || 'all',
-        filters.line || 'all',
-        filters.deviceManufacturer || 'all'
-    ].join('|');
+function getDeviceGraphCache() {
+    if (!(state.deviceGraphCache instanceof GraphCache)) {
+        stateManager.setState('deviceGraphCache', new GraphCache({ maxSize: 100 }));
+    }
+    return state.deviceGraphCache;
 }
 
 function buildTopologyGraphData(projectData) {
@@ -528,18 +437,18 @@ function isHeaderDragTarget(cellView) {
 }
 
 function scheduleLinkAlign(cell) {
-    state.pendingLinkAlign = cell;
+    stateManager.setState('pendingLinkAlign', cell);
     if (state.linkAlignFrame) return;
-    state.linkAlignFrame = requestAnimationFrame(() => {
-        state.linkAlignFrame = null;
+    stateManager.setState('linkAlignFrame', requestAnimationFrame(() => {
+        stateManager.setState('linkAlignFrame', null);
         const target = state.pendingLinkAlign;
-        state.pendingLinkAlign = null;
+        stateManager.setState('pendingLinkAlign', null);
         if (target) {
             alignGroupLinks(target);
         } else {
             alignGroupLinks();
         }
-    });
+    }));
 }
 
 export function createNodeElement(node) {

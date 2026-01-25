@@ -60,8 +60,7 @@ export const state = {
     elkSettings: null,
     elkPreset: 'balanced',
     themeName: 'latte',
-    deviceGraphCache: new Map(),
-    deviceGraphCacheProject: null,
+    deviceGraphCache: null,
     viewPreferences: {
         linkStyle: 'auto',
         density: 'comfortable',

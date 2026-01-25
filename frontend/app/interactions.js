@@ -5,6 +5,7 @@ import { scheduleMinimap } from './minimap.js';
 import { selectCell, clearSelection } from './selection.js';
 import { readTheme } from './theme.js';
 import { rebuildSelectionIndex } from './graph/styles.js';
+import { stateManager } from './state_manager.js';
 
 export function bindInteractions() {
     const { paper } = state;
@@ -36,7 +37,7 @@ export function bindInteractions() {
         dom.paper.removeEventListener('wheel', state.wheelHandler);
     }
 
-    state.wheelHandler = (event) => {
+    const wheelHandler = (event) => {
         if (!paper) return;
         event.preventDefault();
         const delta = Number(event.deltaY || 0);
@@ -50,13 +51,14 @@ export function bindInteractions() {
         // Performance optimization: track zoom state for CSS
         paper.el.classList.add('is-zooming');
         if (state.zoomTimeout) clearTimeout(state.zoomTimeout);
-        state.zoomTimeout = setTimeout(() => {
+        stateManager.setState('zoomTimeout', setTimeout(() => {
             if (state.paper) state.paper.el.classList.remove('is-zooming');
-            state.zoomTimeout = null;
-        }, 200);
+            stateManager.setState('zoomTimeout', null);
+        }, 200));
 
         zoomAt(point, nextScale);
     };
+    stateManager.setState('wheelHandler', wheelHandler);
 
     if (dom && dom.paper) {
         dom.paper.addEventListener('wheel', state.wheelHandler, { passive: false });
@@ -78,7 +80,7 @@ export function bindInteractions() {
             }
         };
 
-        state.middlePanHandler = onMiddleMouseDown;
+        stateManager.setState('middlePanHandler', onMiddleMouseDown);
         dom.paper.addEventListener('mousedown', onMiddleMouseDown, true);
 
         if (state.pointerHandlers) {
@@ -122,7 +124,7 @@ export function bindInteractions() {
             pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
             if (pointers.size === 2) {
                 pinchState = null;
-                state.panState = null;
+                stateManager.setState('panState', null);
                 startPinch();
             }
             if (dom.paper.setPointerCapture) {
@@ -149,11 +151,11 @@ export function bindInteractions() {
             }
         };
 
-        state.pointerHandlers = {
+        stateManager.setState('pointerHandlers', {
             down: onPointerDown,
             move: onPointerMove,
             up: onPointerUp
-        };
+        });
 
         dom.paper.addEventListener('pointerdown', onPointerDown, { passive: false });
         dom.paper.addEventListener('pointermove', onPointerMove, { passive: false });
@@ -161,15 +163,15 @@ export function bindInteractions() {
         dom.paper.addEventListener('pointercancel', onPointerUp);
 
         const onDragIntentDown = (event) => {
-            state.dragIntentTarget = event.target;
+            stateManager.setState('dragIntentTarget', event.target);
         };
         const onDragIntentUp = () => {
-            state.dragIntentTarget = null;
+            stateManager.setState('dragIntentTarget', null);
         };
-        state.dragIntentHandlers = {
+        stateManager.setState('dragIntentHandlers', {
             down: onDragIntentDown,
             up: onDragIntentUp
-        };
+        });
         dom.paper.addEventListener('pointerdown', onDragIntentDown, true);
         dom.paper.addEventListener('pointerup', onDragIntentUp, true);
         dom.paper.addEventListener('pointercancel', onDragIntentUp, true);
@@ -181,7 +183,7 @@ export function bindInteractions() {
         document.addEventListener('pointermove', handlePanMove);
         document.addEventListener('pointerup', stopPan);
         document.addEventListener('pointercancel', stopPan);
-        state.interactionsBound = true;
+        stateManager.setState('interactionsBound', true);
     }
 
 }
@@ -208,12 +210,12 @@ export function focusCell(cell) {
 function startPan(event) {
     const { paper } = state;
     if (!paper) return;
-    state.panState = {
+    stateManager.setState('panState', {
         startX: event.clientX,
         startY: event.clientY,
         tx: paper.translate().tx,
         ty: paper.translate().ty
-    };
+    });
 
     // Performance optimization: disable interactivity during pan
     paper.setInteractivity(false);
@@ -236,7 +238,7 @@ function handlePanMove(event) {
 
 function stopPan() {
     if (!state.panState) return;
-    state.panState = null;
+    stateManager.setState('panState', null);
     document.body.style.cursor = 'default';
 
     // Restore interactivity after pan
@@ -386,7 +388,7 @@ function enableGroupHierarchySummary() {
     if (state.graph.stopBatch) {
         state.graph.stopBatch('ga-summary');
     }
-    state.groupHierarchySummaryMode = true;
+    stateManager.setState('groupHierarchySummaryMode', true);
     rebuildSelectionIndex();
 }
 
@@ -417,7 +419,7 @@ function disableGroupHierarchySummary() {
     if (state.graph.stopBatch) {
         state.graph.stopBatch('ga-summary');
     }
-    state.groupHierarchySummaryMode = false;
+    stateManager.setState('groupHierarchySummaryMode', false);
     rebuildSelectionIndex();
 }
 
@@ -462,7 +464,7 @@ function enableDeviceSummary() {
     if (state.graph.stopBatch) {
         state.graph.stopBatch('device-summary');
     }
-    state.deviceSummaryMode = true;
+    stateManager.setState('deviceSummaryMode', true);
 }
 
 function disableDeviceSummary() {
@@ -478,7 +480,7 @@ function disableDeviceSummary() {
     if (state.graph.stopBatch) {
         state.graph.stopBatch('device-summary');
     }
-    state.deviceSummaryMode = false;
+    stateManager.setState('deviceSummaryMode', false);
 }
 
 function enableGroupSummary() {
@@ -534,7 +536,7 @@ function enableGroupSummary() {
     if (aggregateLinks.length) {
         state.graph.addCells(aggregateLinks);
     }
-    state.groupSummaryLinks = aggregateLinks;
+    stateManager.setState('groupSummaryLinks', aggregateLinks);
 
     const hiddenLinks = [];
     state.graph.getLinks().forEach((link) => {
@@ -551,7 +553,7 @@ function enableGroupSummary() {
             link.labels([]);
         }
     });
-    state.hiddenGroupLinks = hiddenLinks;
+    stateManager.setState('hiddenGroupLinks', hiddenLinks);
 
     state.graph.getElements().forEach((el) => {
         if (el.get('kind') !== 'groupobject') return;
@@ -573,7 +575,7 @@ function enableGroupSummary() {
     if (state.graph.stopBatch) {
         state.graph.stopBatch('summary');
     }
-    state.groupSummaryMode = true;
+    stateManager.setState('groupSummaryMode', true);
     rebuildSelectionIndex();
 }
 
@@ -589,7 +591,7 @@ function disableGroupSummary() {
             link.remove();
         }
     });
-    state.groupSummaryLinks = [];
+    stateManager.setState('groupSummaryLinks', []);
 
     state.hiddenGroupLinks.forEach((entry) => {
         const link = entry.link;
@@ -608,7 +610,7 @@ function disableGroupSummary() {
             link.labels(entry.labels);
         }
     });
-    state.hiddenGroupLinks = [];
+    stateManager.setState('hiddenGroupLinks', []);
 
     state.graph.getElements().forEach((el) => {
         if (el.get('kind') !== 'groupobject') return;
@@ -626,7 +628,7 @@ function disableGroupSummary() {
     if (state.graph.stopBatch) {
         state.graph.stopBatch('summary');
     }
-    state.groupSummaryMode = false;
+    stateManager.setState('groupSummaryMode', false);
     rebuildSelectionIndex();
 }
 
@@ -684,8 +686,10 @@ export function syncPaperToContent(options = {}) {
         : Math.max(minHeight, scaledHeight);
     paper.setDimensions(width, height);
 
-    state.scrollMode = false;
-    state.scrollPadding = 0;
+    stateManager.setStatePatch({
+        scrollMode: false,
+        scrollPadding: 0
+    });
 
     if (options.resetView) {
         paper.translate(padding - bounds.x * scale, padding - bounds.y * scale);
@@ -697,8 +701,10 @@ function getGraphBounds(elements) {
         return state.graphBounds;
     }
     const bounds = computeGraphBounds(elements);
-    state.graphBounds = bounds;
-    state.graphBoundsDirty = false;
+    stateManager.setStatePatch({
+        graphBounds: bounds,
+        graphBoundsDirty: false
+    });
     return bounds;
 }
 

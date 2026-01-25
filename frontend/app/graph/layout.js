@@ -12,6 +12,9 @@ import {
     getNodeProp,
     measureTextWidth
 } from '../utils.js';
+import { PERFORMANCE_THRESHOLDS } from '../config/performance.js';
+import { resolveElkAlgorithm } from '../config/elk-algorithms.js';
+import { stateManager } from '../state_manager.js';
 
 let cachedElk = null;
 let cachedGraphRef = null;
@@ -96,7 +99,10 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
     const edgeCount = state.currentGraphData && Array.isArray(state.currentGraphData.edges)
         ? state.currentGraphData.edges.length
         : 0;
-    const elkAllowedForSize = viewType !== 'device' || (deviceNodes.length <= 1200 && edgeCount <= 4000);
+    const elkAllowedForSize = viewType !== 'device' || (
+        deviceNodes.length <= PERFORMANCE_THRESHOLDS.ELK_LAYOUT.MAX_DEVICES
+        && edgeCount <= PERFORMANCE_THRESHOLDS.ELK_LAYOUT.MAX_EDGES
+    );
     if (shouldUseElk && elkAllowedForSize && deviceNodes.length > 1) {
         scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings, viewType, width);
     }
@@ -147,16 +153,15 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
     const graphData = state.currentGraphData;
     if (!graphData || !graphData.edges || !graphData.edges.length) return;
 
-    const algorithm = state.elkSettings && state.elkSettings.algorithm
-        ? state.elkSettings.algorithm
-        : 'layered';
+    const elkConfig = resolveElkAlgorithm(state.elkSettings && state.elkSettings.algorithm);
+    const algorithm = elkConfig.id;
     const nodeById = new Map(nodes.map(node => [node.id, node]));
     const deviceById = new Map(deviceNodes.map(node => [node.id, node]));
     const edges = buildDeviceEdges(graphData.edges, nodeById, deviceById);
     if (!edges.length) return;
 
     const token = (state.elkLayoutToken || 0) + 1;
-    state.elkLayoutToken = token;
+    stateManager.setState('elkLayoutToken', token);
 
     const elkGraph = {
         id: 'knx-group-layout',
@@ -176,7 +181,7 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
     const dom = getDom();
     if (dom && dom.loading) {
         startGraphLoading('Optimizing layout...');
-        state.elkLayoutActive = true;
+        stateManager.setState('elkLayoutActive', true);
     }
 
     elk.layout(elkGraph).then((result) => {
@@ -202,9 +207,10 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
             layout.y = Math.round((pos.y || 0) + offsetY);
         });
 
-        if (algorithm === 'stress' || algorithm === 'force' || algorithm === 'disco') {
+        if (elkConfig.requiresOverlapResolution) {
             const overlapPadding = Math.max(8, Math.round(settings.padding * 0.9));
-            resolveOverlaps(layouts, overlapPadding, 18);
+            const iterations = elkConfig.overlapIterations || 12;
+            resolveOverlaps(layouts, overlapPadding, iterations);
             let adjustMinX = Infinity;
             let adjustMinY = Infinity;
             layouts.forEach((layout) => {
@@ -235,11 +241,11 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
             state.graph.stopBatch('elk-layout');
         }
         syncPaperToContent({ resetView: false, normalizeOnScroll: false });
-        state.elkLayoutActive = false;
+        stateManager.setState('elkLayoutActive', false);
         stopGraphLoading();
     }).catch((error) => {
         console.warn('ELK layout failed', error);
-        state.elkLayoutActive = false;
+        stateManager.setState('elkLayoutActive', false);
         stopGraphLoading();
     });
 }
@@ -504,7 +510,7 @@ function resolveDeviceId(node) {
 
 function buildElkOptions(settings) {
     const elk = state.elkSettings || {};
-    const algorithm = elk.algorithm || 'layered';
+    const algorithm = resolveElkAlgorithm(elk.algorithm).id;
 
     if (algorithm === 'stress') {
         const stress = state.uiSettings?.stress || {};

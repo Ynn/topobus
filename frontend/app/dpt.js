@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { stateManager } from './state_manager.js';
 
 const DPT_CSV_PATH = new URL('../dpt.csv', import.meta.url);
 let loadPromise = null;
@@ -13,12 +14,14 @@ export function loadDptCatalog() {
     loadPromise = fetch(DPT_CSV_PATH)
         .then((response) => (response.ok ? response.text() : ''))
         .then((text) => {
-            state.dptCatalog = parseDptCsv(text || '');
-            return state.dptCatalog;
+            const catalog = parseDptCsv(text || '');
+            stateManager.setState('dptCatalog', catalog);
+            return catalog;
         })
         .catch(() => {
-            state.dptCatalog = emptyCatalog();
-            return state.dptCatalog;
+            const catalog = emptyCatalog();
+            stateManager.setState('dptCatalog', catalog);
+            return catalog;
         });
     return loadPromise;
 }

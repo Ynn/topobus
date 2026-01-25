@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { stateManager } from './state_manager.js';
 import { getDom } from './dom.js';
 import { applyFiltersAndRender } from './filters.js';
 import { resetLayoutCaches } from './graph/layout.js';
@@ -313,11 +314,13 @@ function setDraft(settings) {
 }
 
 function applySettings(settings, { persist = true, rerender = true } = {}) {
-    state.uiSettings = settings;
-    state.elkSettings = settings.elk;
-    state.elkPreset = settings.elkPreset || 'custom';
+    stateManager.setStatePatch({
+        uiSettings: settings,
+        elkSettings: settings.elk,
+        elkPreset: settings.elkPreset || 'custom'
+    });
     const previousTheme = state.themeName;
-    state.themeName = settings.theme || 'latte';
+    stateManager.setState('themeName', settings.theme || 'latte');
     const themeChanged = previousTheme !== state.themeName;
 
     applyTheme(state.themeName);
@@ -325,8 +328,10 @@ function applySettings(settings, { persist = true, rerender = true } = {}) {
     syncSettingsUI(settings);
     if (themeChanged) {
         resetLayoutCaches();
-        state.lastGraphKey = null;
-        state.lastGraphViewType = null;
+        stateManager.setStatePatch({
+            lastGraphKey: null,
+            lastGraphViewType: null
+        });
     }
     refreshGraphTheme();
 

@@ -1,4 +1,5 @@
 import { initWasm, parseKnxprojBytes } from './wasm.js';
+import { ApiClient } from './utils/api_client.js';
 
 export async function parseKnxprojFile(file, password) {
     const wasmData = await tryParseWithWasm(file, password);
@@ -23,21 +24,6 @@ async function tryParseWithWasm(file, password) {
 }
 
 async function parseWithServer(file, password) {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (password) {
-        formData.append('password', password);
-    }
-
-    const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-    });
-
-    const responseText = await response.text();
-    if (!response.ok) {
-        throw new Error(responseText);
-    }
-
-    return JSON.parse(responseText);
+    const apiClient = new ApiClient();
+    return apiClient.uploadProject(file, password, { maxRetries: 3, timeout: 60000 });
 }

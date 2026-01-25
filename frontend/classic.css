@@ -1175,6 +1175,33 @@ tr.table-spacer td {
     gap: 8px;
 }
 
+.panel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+.panel-table th,
+.panel-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+    vertical-align: top;
+}
+
+.panel-table th {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    background: var(--bg-light);
+}
+
+.panel-table tbody tr:nth-child(even) td {
+    background: var(--bg-light);
+}
+
 .panel-item {
     padding: 8px;
     background: var(--bg-white);

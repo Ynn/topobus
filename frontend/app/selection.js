@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { applySelectionStyles } from './graph/styles.js';
 import { setSelectionFromGraph } from './selection_store.js';
+import { stateManager } from './state_manager.js';
 
 const selectionListeners = new Set();
 
@@ -11,7 +12,7 @@ export function registerSelectionListener(listener) {
 }
 
 export function selectCell(cell) {
-    state.selectedCellId = cell ? cell.id : null;
+    stateManager.setState('selectedCellId', cell ? cell.id : null);
     applySelectionStyles();
     setSelectionFromGraph(cell);
     selectionListeners.forEach((listener) => {
@@ -24,7 +25,7 @@ export function selectCell(cell) {
 }
 
 export function highlightCell(cell) {
-    state.selectedCellId = cell ? cell.id : null;
+    stateManager.setState('selectedCellId', cell ? cell.id : null);
     applySelectionStyles();
 }
 

@@ -4,6 +4,8 @@ import { getDom } from './dom.js';
 import { applyFiltersAndRender, updateFilterOptions } from './filters.js';
 import { parseKnxprojFile } from './parser.js';
 import { updateClassicView } from './classic_view.js';
+import { ApiError, NetworkError } from './utils/api_client.js';
+import { stateManager } from './state_manager.js';
 
 export function setupUploadHandlers() {
     const dom = getDom();
@@ -93,7 +95,7 @@ export function setupPasswordControls() {
 }
 
 async function uploadFile(file) {
-    state.lastFile = file;
+    stateManager.setState('lastFile', file);
     const dom = getDom();
     if (!dom) return;
 
@@ -108,13 +110,15 @@ async function uploadFile(file) {
 
         // Parsing
         const data = await parseKnxprojFile(file, password || null);
-        state.currentProject = data;
-        state.lastGraphKey = null;
-        state.lastGraphViewType = null;
-        state.graphLoadingActive = false;
-        state.groupSummaryMode = false;
-        state.groupAddressIndex = buildGroupAddressIndex(data);
-        state.deviceIndex = buildDeviceIndex(data);
+        stateManager.setStatePatch({
+            currentProject: data,
+            lastGraphKey: null,
+            lastGraphViewType: null,
+            graphLoadingActive: false,
+            groupSummaryMode: false,
+            groupAddressIndex: buildGroupAddressIndex(data),
+            deviceIndex: buildDeviceIndex(data)
+        });
         updateFilterOptions(data);
 
         hidePasswordPrompt();
@@ -135,22 +139,32 @@ async function uploadFile(file) {
         }
 
     } catch (error) {
-        handleUploadError(error.message || String(error));
+        handleUploadError(error);
     }
 }
 
-function handleUploadError(message) {
+function handleUploadError(error) {
     const dom = getDom();
     if (!dom) return;
-    dom.loading.classList.add('hidden');
-    dom.uploadZone.classList.remove('hidden');
+    if (dom.loading) dom.loading.classList.add('hidden');
+    if (dom.uploadZone) dom.uploadZone.classList.remove('hidden');
 
+    const message = error && error.message ? error.message : String(error || 'Upload failed.');
     if (isPasswordError(message)) {
         showPasswordPrompt(message);
         return;
     }
 
-    alert(`Upload failed: ${message}`);
+    if (error instanceof NetworkError) {
+        setUploadError('Network error. Please check your connection and try again.');
+        return;
+    }
+    if (error instanceof ApiError) {
+        setUploadError(`Upload failed (${error.status}): ${message}`);
+        return;
+    }
+
+    setUploadError(`Upload failed: ${message}`);
 }
 
 function isPasswordError(message) {
@@ -177,6 +191,18 @@ function hidePasswordPrompt() {
     if (dom.passwordInput) {
         dom.passwordInput.value = '';
     }
+}
+
+function setUploadError(message) {
+    const dom = getDom();
+    if (!dom || !dom.uploadZone) return;
+    let errorBox = dom.uploadZone.querySelector('.upload-error');
+    if (!errorBox) {
+        errorBox = document.createElement('div');
+        errorBox.className = 'upload-error';
+        dom.uploadZone.appendChild(errorBox);
+    }
+    errorBox.textContent = message;
 }
 
 function buildGroupAddressIndex(project) {

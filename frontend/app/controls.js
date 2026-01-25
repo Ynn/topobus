@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { stateManager } from './state_manager.js';
 import { getDom } from './dom.js';
 import { applyFiltersAndRender, refreshFilterControls } from './filters.js';
 import { zoomBy, exportSvg, fitContent, syncPaperToContent } from './interactions.js';
@@ -40,7 +41,7 @@ export function setupViewSelector() {
     if (!dom || !dom.viewSelector) return;
     dom.viewSelector.value = state.currentView;
     dom.viewSelector.addEventListener('change', (e) => {
-        state.currentView = e.target.value;
+        stateManager.setState('currentView', e.target.value);
         if (state.currentProject) {
             runWithLoading('Loading graph...', () => {
                 applyFiltersAndRender();

@@ -1,12 +1,15 @@
-use axum::{extract::Multipart, http::StatusCode, Json};
+use axum::{extract::{Multipart, State}, http::StatusCode, Json};
 
 use topobus_core::{build_project_graphs, load_knxproj_bytes, InvalidPasswordError, PasswordRequiredError, ProjectGraphs};
+use crate::server::config::ServerConfig;
+use crate::server::validation::{FileValidator, ValidationError};
 
 pub async fn health_check() -> &'static str {
     "OK"
 }
 
 pub async fn handle_upload(
+    State(config): State<ServerConfig>,
     mut multipart: Multipart,
 ) -> Result<Json<ProjectGraphs>, (StatusCode, String)> {
     log::info!("Received file upload request");
@@ -58,6 +61,22 @@ pub async fn handle_upload(
         None => {
             log::info!("No password provided");
         }
+    }
+
+    let validator = FileValidator::new(
+        config.max_upload_size_bytes,
+        config.max_uncompressed_size_bytes,
+    );
+    if let Err(error) = validator.validate_upload(&filename, data.as_ref()) {
+        let status = match error {
+            ValidationError::FileTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
+            ValidationError::InvalidFileFormat { .. } => StatusCode::BAD_REQUEST,
+            ValidationError::InvalidArchive => StatusCode::BAD_REQUEST,
+            ValidationError::UncompressedTooLarge { .. } => StatusCode::BAD_REQUEST,
+            ValidationError::ArchiveError(_) => StatusCode::BAD_REQUEST,
+        };
+        log::warn!("Upload validation failed: {}", error);
+        return Err((status, error.to_string()));
     }
 
     // Parse the KNX project
