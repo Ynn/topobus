@@ -76,6 +76,24 @@ fn load_knxproj_reader<R: Read + Seek>(reader: R, password: Option<&str>) -> Res
         &group_address_by_id,
         &manufacturer_names,
     )?;
+
+    let mut inferred_dpts: HashMap<String, String> = HashMap::new();
+    for device in &devices {
+        for link in &device.group_links {
+            if let Some(dpt) = &link.datapoint_type {
+                inferred_dpts
+                    .entry(link.group_address.clone())
+                    .or_insert_with(|| dpt.clone());
+            }
+        }
+    }
+    for ga in &mut group_addresses {
+        if ga.datapoint_type.is_none() {
+            if let Some(dpt) = inferred_dpts.get(&ga.address) {
+                ga.datapoint_type = Some(dpt.clone());
+            }
+        }
+    }
     let device_index: HashMap<String, (String, String)> = devices
         .iter()
         .map(|device| (device.instance_id.clone(), (device.individual_address.clone(), device.name.clone())))
@@ -815,16 +833,30 @@ fn extract_devices<R: Read + Seek>(
             }
 
             let link_attr = com_ref.attribute("Links").unwrap_or("");
-            let link_ids: Vec<&str> = link_attr
+            let mut link_ids: Vec<String> = link_attr
                 .split([' ', ','])
                 .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
                 .collect();
+            if link_ids.is_empty() {
+                link_ids = extract_connector_links(&com_ref);
+            }
             if link_ids.is_empty() {
                 continue;
             }
 
             let module_id = ref_id.split("_O-").next().unwrap_or("");
             let arg_values = resolve_module_arguments(module_args.get(module_id), app);
+            let base_module_values = module_id
+                .split("_SM-")
+                .next()
+                .and_then(|id| {
+                    if id == module_id {
+                        None
+                    } else {
+                        module_args.get(id)
+                    }
+                });
 
             let com_key = com_object_key(ref_id);
             let com_def = app.and_then(|program| program.com_object_refs.get(&com_key));
@@ -832,6 +864,14 @@ fn extract_devices<R: Read + Seek>(
                 .and_then(|def| def.ref_id.as_ref())
                 .and_then(|ref_id| app.and_then(|program| program.com_objects.get(ref_id)));
             let com_data = resolve_com_data(com_def, app);
+            let adjusted_number = compute_object_number(
+                com_data.number,
+                com_obj,
+                module_args.get(module_id),
+                base_module_values,
+                app,
+                ref_id,
+            );
             let com_flags = com_data.flags;
             let link_security = attr_value(&com_ref, "Security");
             let link_building_function = attr_value(&com_ref, "BuildingFunction")
@@ -861,8 +901,10 @@ fn extract_devices<R: Read + Seek>(
                 &arg_values,
             );
 
-            for link_id in link_ids {
-                let info = group_address_by_id.get(link_id);
+            for (link_index, link_id) in link_ids.iter().enumerate() {
+                let info = group_address_by_id
+                    .get(link_id)
+                    .or_else(|| group_address_by_id.get(&short_id(link_id)));
                 let address = info
                     .map(|ga| ga.address.clone())
                     .unwrap_or_else(|| link_id.to_string());
@@ -871,7 +913,7 @@ fn extract_devices<R: Read + Seek>(
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or_else(|| ref_id.to_string());
                 let mut parts = Vec::new();
-                if let Some(num) = com_data.number {
+                if let Some(num) = adjusted_number.or(com_data.number) {
                     parts.push(format!("[#{}]", num));
                 }
 
@@ -906,18 +948,20 @@ fn extract_devices<R: Read + Seek>(
                     parts.join(" ")
                 };
 
+                let is_transmitter = com_flags.is_transmitter() && link_index == 0;
                 group_links.push(GroupLink {
                     object_name,
                     object_name_raw: object_name_raw.clone(),
                     object_text: object_text.clone(),
                     object_function_text: object_function_text.clone(),
                     group_address: address,
-                    is_transmitter: com_flags.is_transmitter(),
+                    is_transmitter,
                     is_receiver: com_flags.is_receiver(),
                     channel: com_data.channel.clone(),
                     datapoint_type: com_data.datapoint_type.clone(),
-                    number: com_data.number,
+                    number: adjusted_number.or(com_data.number),
                     description: com_data.description.clone(),
+                    object_size: com_data.object_size.clone(),
                     security: link_security.clone(),
                     building_function: link_building_function.clone(),
                     building_part: link_building_part.clone(),
@@ -1085,6 +1129,38 @@ fn parse_space(
         devices,
         children,
     }
+}
+
+fn extract_connector_links(com_ref: &roxmltree::Node) -> Vec<String> {
+    let mut ids = Vec::new();
+    let connectors = com_ref
+        .children()
+        .find(|node| node.is_element() && node.tag_name().name() == "Connectors");
+    if let Some(connectors) = connectors {
+        for node in connectors
+            .children()
+            .filter(|n| n.is_element() && n.tag_name().name() == "Send")
+        {
+            if let Some(ref_id) = node.attribute("GroupAddressRefId") {
+                let trimmed = ref_id.trim();
+                if !trimmed.is_empty() {
+                    ids.push(short_id(trimmed));
+                }
+            }
+        }
+        for node in connectors
+            .children()
+            .filter(|n| n.is_element() && n.tag_name().name() == "Receive")
+        {
+            if let Some(ref_id) = node.attribute("GroupAddressRefId") {
+                let trimmed = ref_id.trim();
+                if !trimmed.is_empty() {
+                    ids.push(short_id(trimmed));
+                }
+            }
+        }
+    }
+    ids
 }
 
 fn find_ancestor_address(node: &roxmltree::Node, tag: &str) -> Option<String> {
@@ -1288,6 +1364,8 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
                 flags: Flags::from_node(&obj),
                 datapoint_type: attr_value(&obj, "DatapointType"),
                 number: obj.attribute("Number").and_then(|v| v.parse().ok()),
+                object_size: attr_value(&obj, "ObjectSize"),
+                base_number_argument_ref: obj.attribute("BaseNumber").map(|value| value.to_string()),
                 description: attr_value_localized(&obj, "Description", &translations, &prefix),
                 name: attr_value_localized(&obj, "Name", &translations, &prefix),
                 text: attr_value_localized(&obj, "Text", &translations, &prefix),
@@ -1317,6 +1395,7 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
             name: attr_value_localized(&obj, "Name", &translations, &prefix),
             text: attr_value_localized(&obj, "Text", &translations, &prefix),
             datapoint_type: attr_value(&obj, "DatapointType"),
+            object_size: attr_value(&obj, "ObjectSize"),
             ref_id: obj
                 .attribute("RefId")
                 .map(|value| strip_prefix(value, &prefix)),
@@ -1326,6 +1405,75 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
             description: attr_value_localized(&obj, "Description", &translations, &prefix),
         };
         com_object_refs.insert(strip_prefix(id, &prefix), def);
+    }
+
+    let mut allocators = HashMap::new();
+    for allocator in doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "Allocator")
+    {
+        let id = match allocator.attribute("Id") {
+            Some(id) => id,
+            None => continue,
+        };
+        let start = allocator
+            .attribute("Start")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        let end = allocator
+            .attribute("maxInclusive")
+            .and_then(|value| value.parse().ok());
+        allocators.insert(
+            id.to_string(),
+            AllocatorDef {
+                start,
+                end,
+            },
+        );
+    }
+
+    let mut module_def_arguments = HashMap::new();
+    for arg in doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "Argument")
+    {
+        let id = match arg.attribute("Id") {
+            Some(id) => id,
+            None => continue,
+        };
+        let allocates = arg
+            .attribute("Allocates")
+            .and_then(|value| value.parse().ok());
+        if allocates.is_none() && arg.attribute("Name").is_none() {
+            continue;
+        }
+        module_def_arguments.insert(
+            id.to_string(),
+            ModuleArgumentInfo {
+                name: attr_value_localized(&arg, "Name", &translations, &prefix),
+                allocates,
+            },
+        );
+    }
+
+    let mut numeric_args = HashMap::new();
+    for num in doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "NumericArg")
+    {
+        let ref_id = match num.attribute("RefId") {
+            Some(id) => id,
+            None => continue,
+        };
+        let value = num.attribute("Value").and_then(|val| val.parse().ok());
+        numeric_args.insert(
+            ref_id.to_string(),
+            NumericArgDef {
+                allocator_ref_id: num.attribute("AllocatorRefId").map(|v| v.to_string()),
+                base_value: num.attribute("BaseValue").map(|v| v.to_string()),
+                value,
+            },
+        );
     }
 
     let mut parameters = HashMap::new();
@@ -1356,6 +1504,7 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
     let mask_version = app_node.and_then(|node| attr_value(&node, "MaskVersion"));
 
     Ok(AppProgram {
+        prefix,
         name: app_name,
         version: app_version,
         number: app_number,
@@ -1365,6 +1514,9 @@ fn load_app_program<R: Read + Seek>(zip: &mut ZipArchive<R>, app_id: &str) -> Re
         com_object_refs,
         com_objects,
         parameters,
+        allocators,
+        module_def_arguments,
+        numeric_args,
     })
 }
 
@@ -1545,17 +1697,170 @@ fn resolve_template(value: Option<&str>, arg_values: &HashMap<String, String>) -
     Some(resolved)
 }
 
+fn compute_object_number(
+    base_number: Option<u32>,
+    com_obj: Option<&ComObjectDef>,
+    module_values: Option<&HashMap<String, String>>,
+    base_module_values: Option<&HashMap<String, String>>,
+    app: Option<&AppProgram>,
+    com_ref_id: &str,
+) -> Option<u32> {
+    let base_number = match base_number {
+        Some(value) => value,
+        None => return None,
+    };
+    let base_ref = com_obj.and_then(|obj| obj.base_number_argument_ref.as_deref());
+    let (base_ref, module_values, base_module_values, app) =
+        match (base_ref, module_values, base_module_values, app) {
+            (Some(base_ref), Some(values), base_module_values, Some(app)) => {
+                (base_ref, values, base_module_values, app)
+            }
+            _ => return Some(base_number),
+        };
+
+    let adjustment = resolve_base_number(
+        base_ref,
+        module_values,
+        base_module_values,
+        app,
+        com_ref_id,
+    )?;
+    Some(base_number.saturating_add(adjustment))
+}
+
+fn resolve_base_number(
+    base_ref: &str,
+    module_values: &HashMap<String, String>,
+    base_module_values: Option<&HashMap<String, String>>,
+    app: &AppProgram,
+    com_ref_id: &str,
+) -> Option<u32> {
+    let raw = lookup_module_value(base_ref, module_values, base_module_values)?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    if let Ok(value) = raw.parse::<u32>() {
+        return Some(value);
+    }
+
+    let numeric = app
+        .numeric_args
+        .get(base_ref)
+        .or_else(|| {
+            app.numeric_args
+                .iter()
+                .find(|(key, _)| key.ends_with(base_ref))
+                .map(|(_, arg)| arg)
+        });
+
+    if let Some(numeric) = numeric {
+        if let Some(value) = numeric.value {
+            return Some(value);
+        }
+    }
+
+    let allocator_ref = numeric
+        .and_then(|num| num.allocator_ref_id.as_deref())
+        .unwrap_or(raw);
+
+    let allocator_start = find_allocator_start(app, allocator_ref)?;
+    let allocates = app
+        .module_def_arguments
+        .get(base_ref)
+        .or_else(|| {
+            app.module_def_arguments
+                .iter()
+                .find(|(key, _)| key.ends_with(base_ref))
+                .map(|(_, info)| info)
+        })
+        .and_then(|info| info.allocates)?;
+
+    let index = parse_module_index(com_ref_id).unwrap_or(1);
+    let mut value = allocator_start.saturating_add(allocates.saturating_mul(index.saturating_sub(1)));
+
+    if let Some(numeric) = numeric {
+        if let Some(base_ref_id) = numeric.base_value.as_deref() {
+            if let Some(extra) = resolve_base_number(
+                base_ref_id,
+                module_values,
+                base_module_values,
+                app,
+                com_ref_id,
+            ) {
+                value = value.saturating_add(extra);
+            }
+        }
+    }
+
+    Some(value)
+}
+
+fn lookup_module_value<'a>(
+    key: &str,
+    module_values: &'a HashMap<String, String>,
+    base_module_values: Option<&'a HashMap<String, String>>,
+) -> Option<&'a String> {
+    module_values
+        .get(key)
+        .or_else(|| {
+            module_values
+                .iter()
+                .find(|(k, _)| k.ends_with(key))
+                .map(|(_, value)| value)
+        })
+        .or_else(|| {
+            base_module_values.and_then(|values| {
+                values
+                    .get(key)
+                    .or_else(|| {
+                        values
+                            .iter()
+                            .find(|(k, _)| k.ends_with(key))
+                            .map(|(_, value)| value)
+                    })
+            })
+        })
+}
+
+fn find_allocator_start(app: &AppProgram, allocator_ref: &str) -> Option<u32> {
+    if let Some(allocator) = app.allocators.get(allocator_ref) {
+        return Some(allocator.start);
+    }
+    let prefixed = format!("{}{}", app.prefix, allocator_ref);
+    if let Some(allocator) = app.allocators.get(&prefixed) {
+        return Some(allocator.start);
+    }
+    app.allocators
+        .iter()
+        .find(|(id, _)| id.ends_with(allocator_ref))
+        .map(|(_, allocator)| allocator.start)
+}
+
+fn parse_module_index(ref_id: &str) -> Option<u32> {
+    let marker = "_MI-";
+    let start = ref_id.find(marker)? + marker.len();
+    let suffix = &ref_id[start..];
+    let digits: String = suffix.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
 struct ComObjectData {
     flags: Flags,
     datapoint_type: Option<String>,
     channel: Option<String>,
     number: Option<u32>,
     description: Option<String>,
+    object_size: Option<String>,
 }
 
 fn resolve_com_data(com_def: Option<&ComObjectRefDef>, app: Option<&AppProgram>) -> ComObjectData {
     let mut flags = com_def.map(|def| def.flags.clone()).unwrap_or_default();
     let mut dpt = com_def.and_then(|def| def.datapoint_type.clone());
+    let mut object_size = com_def.and_then(|def| def.object_size.clone());
     let channel = com_def.and_then(|def| def.channel.clone());
     let mut number = com_def.and_then(|def| def.number);
     let mut description = com_def.and_then(|def| def.description.clone());
@@ -1567,6 +1872,9 @@ fn resolve_com_data(com_def: Option<&ComObjectRefDef>, app: Option<&AppProgram>)
                     flags = flags.with_fallback(obj.flags.clone());
                     if dpt.is_none() {
                         dpt = obj.datapoint_type.clone();
+                    }
+                    if object_size.is_none() {
+                        object_size = obj.object_size.clone();
                     }
                     if number.is_none() {
                         number = obj.number;
@@ -1584,6 +1892,7 @@ fn resolve_com_data(com_def: Option<&ComObjectRefDef>, app: Option<&AppProgram>)
         channel,
         number,
         description,
+        object_size,
     }
 }
 
@@ -1653,6 +1962,7 @@ fn parse_hardware_flag(value: Option<&str>) -> bool {
 }
 
 struct AppProgram {
+    prefix: String,
     name: Option<String>,
     version: Option<String>,
     number: Option<String>,
@@ -1662,6 +1972,9 @@ struct AppProgram {
     com_object_refs: HashMap<String, ComObjectRefDef>,
     com_objects: HashMap<String, ComObjectDef>,
     parameters: HashMap<String, ParameterDef>,
+    allocators: HashMap<String, AllocatorDef>,
+    module_def_arguments: HashMap<String, ModuleArgumentInfo>,
+    numeric_args: HashMap<String, NumericArgDef>,
 }
 
 struct HardwareData {
@@ -1688,6 +2001,7 @@ struct ComObjectRefDef {
     text: Option<String>,
     function_text: Option<String>,
     datapoint_type: Option<String>,
+    object_size: Option<String>,
     flags: Flags,
     channel: Option<String>,
     number: Option<u32>,
@@ -1699,10 +2013,31 @@ struct ComObjectDef {
     flags: Flags,
     datapoint_type: Option<String>,
     number: Option<u32>,
+    object_size: Option<String>,
+    base_number_argument_ref: Option<String>,
     description: Option<String>,
     name: Option<String>,
     text: Option<String>,
     function_text: Option<String>,
+}
+
+#[derive(Clone)]
+struct AllocatorDef {
+    start: u32,
+    end: Option<u32>,
+}
+
+#[derive(Clone, Default)]
+struct ModuleArgumentInfo {
+    name: Option<String>,
+    allocates: Option<u32>,
+}
+
+#[derive(Clone)]
+struct NumericArgDef {
+    allocator_ref_id: Option<String>,
+    base_value: Option<String>,
+    value: Option<u32>,
 }
 
 #[derive(Clone)]

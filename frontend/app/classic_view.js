@@ -2,38 +2,40 @@ import { getDom } from './dom.js';
 import { state } from './state.js';
 import { applyFiltersAndRender } from './filters.js';
 import { formatDeviceName } from './utils.js';
-import { resolveDatapointInfo } from './dpt.js';
 import { selectCell, highlightCell, registerSelectionListener } from './selection.js';
 import { focusCell, fitContent, exportSvg } from './interactions.js';
+import { setSelectionFromTable } from './selection_store.js';
+import { ICON } from './ui/icons.js';
+import { formatDptLabel, resolveDptSize } from './formatters/device.js';
 
 // View metadata and table layouts.
 const viewConstants = {
     group: {
         title: 'Group Addresses',
-        sidebarIcon: '🏠'
+        sidebarIcon: ICON.group
     },
     topology: {
         title: 'Topology',
-        sidebarIcon: '🌿'
+        sidebarIcon: ICON.topology
     },
     devices: {
         title: 'Devices',
-        sidebarIcon: '🔌'
+        sidebarIcon: ICON.device
     },
     buildings: {
         title: 'Buildings',
-        sidebarIcon: '🏢'
+        sidebarIcon: ICON.building
     }
 };
 
 const tableLayouts = {
     groupAddresses: ['', '', 'Address', 'Name', 'Sub', 'Description', 'Data Type', 'Length', 'Associations'],
-    groupObjects: ['', '', 'Number', 'Object', 'Device Address', 'Device', 'Function', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'C', 'R', 'W', 'T', 'U', 'I'],
+    groupObjects: ['', '', 'Number', 'Object', 'Device Address', 'Device', 'Function', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'C', 'R', 'W', 'T', 'U'],
     topologyAreas: ['', '', 'Area', 'Name', 'Description'],
     topologyLines: ['', '', 'Line', 'Name', 'Description', 'Medium'],
     topologySegments: ['', '', 'Segment', 'Name', 'Medium', 'Domain'],
     topologyDevices: ['', '', 'Address', 'Name', 'Description', 'Application Program', 'Manufacturer', 'Product'],
-    topologyObjects: ['', '', 'Number', 'Object', 'Function', 'Group Address', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'C', 'R', 'W', 'T', 'U', 'I'],
+    topologyObjects: ['', '', 'Number', 'Object', 'Function', 'Group Addresses', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'C', 'R', 'W', 'T', 'U'],
     buildingDevices: ['', '', 'Address', 'Name', 'Description', 'Location', 'Application Program', 'Manufacturer']
 };
 
@@ -205,7 +207,7 @@ function switchViewType(viewType, force = false) {
     // 5. Update Breadcrumbs (if we had them)
     // 6. Reset selection
     state.selectedId = null;
-    renderPropertiesPanel(null); // Clear properties
+    setSelectionFromTable(null); // Clear properties
 
     updateGraphModeVisibility();
 
@@ -405,12 +407,40 @@ function buildViewData(viewType) {
     }
 }
 
+function buildGroupAddressFallbacks(project) {
+    const map = new Map();
+    const devices = Array.isArray(project.devices) ? project.devices : [];
+    devices.forEach((device) => {
+        const links = Array.isArray(device.group_links) ? device.group_links : [];
+        links.forEach((link) => {
+            if (!link || !link.group_address) return;
+            const address = link.group_address;
+            let entry = map.get(address);
+            if (!entry) {
+                entry = { datapoint_type: '', object_size: '' };
+                map.set(address, entry);
+            }
+            if (!entry.datapoint_type && link.datapoint_type) {
+                entry.datapoint_type = link.datapoint_type;
+            }
+            if (!entry.object_size && link.object_size) {
+                entry.object_size = link.object_size;
+            }
+            if (!entry.object_size && link.datapoint_type) {
+                entry.object_size = resolveDptSize(link.datapoint_type);
+            }
+        });
+    });
+    return map;
+}
+
 function buildGroupViewData() {
     // Flatten group addresses
     const gas = state.currentProject.group_addresses || [];
+    const fallbackMap = buildGroupAddressFallbacks(state.currentProject);
     const tableData = gas.map(ga => ({
         id: ga.id || ga.address,
-        icon: '🔗',
+        icon: ICON.link,
         kind: 'group-address',
         graphId: buildGroupAddressGraphId(ga.address),
         data: {
@@ -418,15 +448,15 @@ function buildGroupViewData() {
             name: ga.name,
             sub: extractGroupSub(ga.address),
             desc: ga.description || '',
-            type: formatDptLabel(ga.datapoint_type),
-            len: resolveDptSize(ga.datapoint_type),
+            type: formatDptLabel(ga.datapoint_type || (fallbackMap.get(ga.address) || {}).datapoint_type),
+            len: resolveDptSize(ga.datapoint_type) || (fallbackMap.get(ga.address) || {}).object_size || '',
             assoc: (ga.linked_devices || []).length
         },
         raw: ga
     }));
 
     // Build Tree (Main Groups -> Middle Groups -> Group Addresses)
-    const treeRoot = { label: 'Group Addresses', icon: '🏠', kind: 'group-root', children: [], expanded: true };
+    const treeRoot = { label: 'Group Addresses', icon: ICON.group, kind: 'group-root', children: [], expanded: true };
     const mainGroups = new Map();
 
     gas.forEach(ga => {
@@ -437,7 +467,7 @@ function buildGroupViewData() {
             const label = ga.main_group_name ? `Main ${mainKey} : ${ga.main_group_name}` : `Main ${mainKey}`;
             mainGroups.set(mainKey, {
                 label,
-                icon: '📁',
+                icon: ICON.folder,
                 kind: 'group-main',
                 value: `main:${mainKey}`,
                 children: new Map(),
@@ -453,7 +483,7 @@ function buildGroupViewData() {
                     : `${mainKey}/${middleKey}`;
                 mainNode.children.set(middleKey, {
                     label: middleLabel,
-                    icon: '📂',
+                    icon: ICON.folderOpen,
                     kind: 'group-middle',
                     value: `mid:${mainKey}/${middleKey}`,
                     children: [],
@@ -463,7 +493,7 @@ function buildGroupViewData() {
             const middleNode = mainNode.children.get(middleKey);
             middleNode.children.push({
                 label: ga.name ? `${ga.address} - ${ga.name}` : ga.address,
-                icon: '🔗',
+                icon: ICON.link,
                 kind: 'group-address',
                 value: ga.address,
                 address: ga.address,
@@ -473,7 +503,7 @@ function buildGroupViewData() {
         } else {
             mainNode.children.set(`ga-${ga.address}`, {
                 label: ga.name ? `${ga.address} - ${ga.name}` : ga.address,
-                icon: '🔗',
+                icon: ICON.link,
                 kind: 'group-address',
                 value: ga.address,
                 address: ga.address,
@@ -507,14 +537,14 @@ function buildTopologyViewData() {
     state.topologyIndex = index;
 
     const tableData = buildTopologyAreaRows(index);
-    const treeRoot = { label: 'Topology', icon: '🌿', kind: 'topology-root', children: [], expanded: true };
+    const treeRoot = { label: 'Topology', icon: ICON.topology, kind: 'topology-root', children: [], expanded: true };
 
     index.areas.forEach((areaInfo) => {
         const areaKey = areaInfo.address;
         const areaLabel = areaInfo.name ? `Area ${areaKey} : ${areaInfo.name}` : `Area ${areaKey}`;
         const areaNode = {
             label: areaLabel,
-            icon: '🌐',
+            icon: ICON.area,
             kind: 'area',
             area: areaKey,
             expanded: false,
@@ -527,7 +557,7 @@ function buildTopologyViewData() {
         lineNodes.forEach((lineInfo) => {
             const lineNode = {
                 label: lineInfo.label,
-                icon: '〰️',
+                icon: ICON.line,
                 kind: 'line',
                 area: areaKey,
                 line: lineInfo.line,
@@ -544,7 +574,7 @@ function buildTopologyViewData() {
             devices.forEach((device) => {
                 lineNode.children.push({
                     label: formatTopologyDeviceLabel(device),
-                    icon: '🔌',
+                    icon: ICON.device,
                     kind: 'device',
                     area: areaKey,
                     line: lineInfo.line,
@@ -559,8 +589,8 @@ function buildTopologyViewData() {
             segmentNodes.forEach((segmentInfo) => {
                 const segmentNode = {
                     label: segmentInfo.label,
-                    icon: '🧩',
-                    kind: 'segment',
+                icon: ICON.object,
+                kind: 'segment',
                     area: areaKey,
                     line: lineInfo.line,
                     segment: segmentInfo.key,
@@ -572,8 +602,8 @@ function buildTopologyViewData() {
                 devices.forEach((device) => {
                     segmentNode.children.push({
                         label: formatTopologyDeviceLabel(device),
-                        icon: '🔌',
-                        kind: 'device',
+                    icon: ICON.device,
+                    kind: 'device',
                         area: areaKey,
                         line: lineInfo.line,
                         segment: segmentInfo.key,
@@ -601,7 +631,7 @@ function buildDevicesViewData() {
     const devices = state.currentProject.devices || [];
     const tableData = buildTopologyDeviceRows(devices);
 
-    const treeRoot = { label: 'Devices', icon: '🔌', kind: 'device-root', expanded: true, children: [] };
+    const treeRoot = { label: 'Devices', icon: ICON.device, kind: 'device-root', expanded: true, children: [] };
     const byManufacturer = new Map();
 
     devices.forEach((device) => {
@@ -609,7 +639,7 @@ function buildDevicesViewData() {
         if (!byManufacturer.has(key)) {
             byManufacturer.set(key, {
                 label: key,
-                icon: '🏷️',
+                icon: ICON.tag,
                 kind: 'device-manufacturer',
                 value: key,
                 expanded: false,
@@ -619,7 +649,7 @@ function buildDevicesViewData() {
         const node = byManufacturer.get(key);
         node.lazyChildren.push({
             label: formatTopologyDeviceLabel(device),
-            icon: '🔌',
+            icon: ICON.device,
             kind: 'device',
             deviceAddress: device.individual_address,
             deviceId: device.instance_id || device.individual_address,
@@ -644,7 +674,7 @@ function buildBuildingsViewData() {
     const project = state.currentProject;
     const locations = Array.isArray(project.locations) ? project.locations : [];
     const deviceIndex = state.deviceIndex || new Map();
-    const treeRoot = { label: 'Buildings', icon: '🏢', kind: 'building-root', expanded: true, children: [] };
+    const treeRoot = { label: 'Buildings', icon: ICON.building, kind: 'building-root', expanded: true, children: [] };
     const tableData = [];
 
     const walk = (space, pathLabels, pathIds, parentNode) => {
@@ -795,7 +825,7 @@ function buildTopologyAreaRows(index) {
     index.areas.forEach((area) => {
         rows.push({
             id: `area-${area.address}`,
-            icon: '🌐',
+            icon: ICON.area,
             kind: 'area',
             graphId: buildAreaGraphId(area.address),
             data: {
@@ -816,7 +846,7 @@ function buildTopologyLineRows(index, areaKey) {
     lines.forEach((line) => {
         rows.push({
             id: `line-${line.key}`,
-            icon: '〰️',
+            icon: ICON.line,
             kind: 'line',
             graphId: buildLineGraphId(line.key),
             data: {
@@ -838,7 +868,7 @@ function buildTopologySegmentRows(index, lineKey) {
     segments.forEach((segment) => {
         rows.push({
             id: `segment-${segment.key}`,
-            icon: '🧩',
+            icon: ICON.object,
             kind: 'segment',
             data: {
                 segment: segment.label,
@@ -856,7 +886,7 @@ function buildTopologySegmentRows(index, lineKey) {
 function buildTopologyDeviceRows(devices) {
     const rows = (devices || []).map((dev) => ({
         id: dev.instance_id || dev.individual_address,
-        icon: '🔌',
+        icon: ICON.device,
         kind: 'device',
         graphId: buildDeviceGraphId(dev.individual_address),
         data: {
@@ -890,26 +920,67 @@ function buildTopologyDeviceRowsForLine(index, lineKey) {
 function buildTopologyGroupObjectRows(device) {
     if (!device || !Array.isArray(device.group_links)) return [];
     const buildingInfo = resolveBuildingInfo(device.individual_address);
-    const rows = device.group_links.map((link, idx) => ({
-        id: `${device.instance_id || device.individual_address}-${link.number != null ? link.number : idx}`,
-        icon: '🧩',
-        kind: 'group-object',
-        data: {
-            number: link.number != null ? String(link.number) : '',
-            object: link.object_name || '',
-            func: link.object_function_text || '',
-            group: link.group_address || '',
-            desc: link.description || link.object_text || '',
-            channel: link.channel || '',
-            security: link.security || '',
-            buildingFunction: link.building_function || buildingInfo.buildingFunction || '',
-            buildingPart: link.building_part || buildingInfo.buildingPart || '',
-            type: formatDptLabel(link.datapoint_type),
-            size: resolveDptSize(link.datapoint_type),
-            ...buildFlagColumns(link.flags)
-        },
-        raw: { link, device }
-    }));
+    const grouped = new Map();
+    device.group_links.forEach((link, idx) => {
+        const numberKey = link.number != null ? String(link.number) : '';
+        const nameKey = link.object_name || '';
+        const channelKey = link.channel || '';
+        const key = `${numberKey}|${nameKey}|${channelKey}`;
+        if (!grouped.has(key)) {
+            grouped.set(key, {
+                number: numberKey,
+                object: link.object_name || '',
+                func: link.object_function_text || '',
+                desc: link.description || link.object_text || '',
+                channel: link.channel || '',
+                security: link.security || '',
+                buildingFunction: link.building_function || buildingInfo.buildingFunction || '',
+                buildingPart: link.building_part || buildingInfo.buildingPart || '',
+                type: link.datapoint_type || '',
+                size: link.object_size || '',
+                flags: link.flags || null,
+                links: [link],
+                index: idx
+            });
+        } else {
+            const entry = grouped.get(key);
+            entry.links.push(link);
+            if (!entry.type && link.datapoint_type) entry.type = link.datapoint_type;
+            if (!entry.size && link.object_size) entry.size = link.object_size;
+        }
+    });
+
+    const rows = Array.from(grouped.values()).map((entry) => {
+        const addresses = [];
+        entry.links.forEach((link) => {
+            if (!link.group_address) return;
+            if (!addresses.includes(link.group_address)) {
+                addresses.push(link.group_address);
+            }
+        });
+        const addressesLabel = addresses.join(', ');
+        const size = entry.size || resolveDptSize(entry.type);
+        return {
+            id: `${device.instance_id || device.individual_address}-${entry.number || entry.index}`,
+            icon: ICON.object,
+            kind: 'group-object',
+            data: {
+                number: entry.number || '',
+                object: entry.object || '',
+                func: entry.func || '',
+                group: addressesLabel,
+                desc: entry.desc || '',
+                channel: entry.channel || '',
+                security: entry.security || '',
+                buildingFunction: entry.buildingFunction || '',
+                buildingPart: entry.buildingPart || '',
+                type: formatDptLabel(entry.type),
+                size,
+                ...buildFlagColumns(entry.flags)
+            },
+            raw: { links: entry.links, link: entry.links[0], device }
+        };
+    });
     rows.sort((a, b) => String(a.data.number || '').localeCompare(String(b.data.number || ''), undefined, { numeric: true }));
     return rows;
 }
@@ -953,13 +1024,13 @@ function buildBuildingLabel(space) {
 
 function buildingIcon(spaceType) {
     const key = String(spaceType || '').toLowerCase();
-    if (key.includes('building')) return '🏢';
-    if (key.includes('floor')) return '🧱';
-    if (key.includes('room')) return '🚪';
-    if (key.includes('corridor')) return '🧭';
-    if (key.includes('stair')) return '🪜';
-    if (key.includes('function')) return '🔧';
-    return '🏗️';
+    if (key.includes('building')) return ICON.building;
+    if (key.includes('floor')) return ICON.buildingFloor;
+    if (key.includes('room')) return ICON.buildingRoom;
+    if (key.includes('corridor')) return ICON.buildingCorridor;
+    if (key.includes('stair')) return ICON.buildingStair;
+    if (key.includes('function')) return ICON.buildingFunction;
+    return ICON.buildingSite;
 }
 
 function resolveDeviceFromRef(deviceRef, deviceIndex) {
@@ -977,7 +1048,7 @@ function buildBuildingDeviceRow(device, deviceRef, idx, pathLabels, pathIds) {
     const location = pathLabels.join(' / ');
     return {
         id: `${address || 'device'}-${idx}`,
-        icon: '🔌',
+        icon: ICON.device,
         kind: 'device',
         graphId: buildDeviceGraphId(address),
         meta: {
@@ -1050,26 +1121,13 @@ function splitGroupAddress(address) {
     };
 }
 
-function formatGroupFlags(flags) {
-    if (!flags) return '';
-    if (typeof flags === 'string') return flags;
-    const active = [];
-    if (flags.communication) active.push('C');
-    if (flags.read) active.push('R');
-    if (flags.write) active.push('W');
-    if (flags.transmit) active.push('T');
-    if (flags.update) active.push('U');
-    if (flags.read_on_init) active.push('I');
-    return active.join(' ');
-}
-
 function buildFlagColumns(flags) {
     const enabled = new Set();
     if (!flags) {
-        return { C: '', R: '', W: '', T: '', U: '', I: '' };
+        return { C: '', R: '', W: '', T: '', U: '' };
     }
     if (typeof flags === 'string') {
-        flags.toUpperCase().replace(/[^CRWTUI]/g, '').split('').forEach((flag) => {
+        flags.toUpperCase().replace(/[^CRWTU]/g, '').split('').forEach((flag) => {
             if (flag) enabled.add(flag);
         });
     } else {
@@ -1078,7 +1136,6 @@ function buildFlagColumns(flags) {
         if (flags.write) enabled.add('W');
         if (flags.transmit) enabled.add('T');
         if (flags.update) enabled.add('U');
-        if (flags.read_on_init) enabled.add('I');
     }
     const mark = (flag) => (enabled.has(flag) ? 'x' : '');
     return {
@@ -1086,25 +1143,8 @@ function buildFlagColumns(flags) {
         R: mark('R'),
         W: mark('W'),
         T: mark('T'),
-        U: mark('U'),
-        I: mark('I')
+        U: mark('U')
     };
-}
-
-function formatDptLabel(raw) {
-    const trimmed = String(raw || '').trim();
-    if (!trimmed) return '';
-    const info = resolveDatapointInfo(trimmed);
-    if (!info) return trimmed;
-    if (info.name && info.id) return `${info.name} (${info.id})`;
-    return info.name || info.id || trimmed;
-}
-
-function resolveDptSize(raw) {
-    const trimmed = String(raw || '').trim();
-    if (!trimmed) return '';
-    const info = resolveDatapointInfo(trimmed);
-    return info && info.size ? info.size : '';
 }
 
 function resolveGraphIdFromRow(item) {
@@ -1188,8 +1228,8 @@ function renderTreeNodes(nodes, depth = 0) {
              data-device-address="${node.deviceAddress || ''}"
              data-device-id="${node.deviceId || ''}"
              data-depth="${depth}">
-            <span class="expand-icon" style="${hasChildren ? 'cursor: pointer;' : 'opacity: 0;'}">${hasChildren ? (expanded ? '▼' : '▶') : ''}</span>
-            <span class="icon">${node.icon || '📄'}</span>
+            <span class="expand-icon" style="${hasChildren ? 'cursor: pointer;' : 'opacity: 0;'}">${hasChildren ? (expanded ? ICON.chevronDown : ICON.chevronRight) : ''}</span>
+            <span class="icon">${node.icon || ICON.file}</span>
             <span>${node.label}</span>
         </div>
         <div id="children-${nodeId}" style="${hasChildren && expanded ? '' : 'display: none;'}">
@@ -1233,7 +1273,7 @@ function handleTreeItemClick(e, item) {
         const expandIcon = item.querySelector('.expand-icon');
         const childrenContainer = document.getElementById(`children-${nodeId}`);
 
-        if (expandIcon) expandIcon.textContent = !isExpanded ? '▼' : '▶';
+        if (expandIcon) expandIcon.textContent = !isExpanded ? ICON.chevronDown : ICON.chevronRight;
         if (childrenContainer) {
             if (!isExpanded && childrenContainer.childElementCount === 0) {
                 materializeLazyChildren(item, childrenContainer);
@@ -1293,7 +1333,7 @@ function expandTree(expandAll) {
             childrenContainer.style.display = 'block';
             item.dataset.expanded = 'true';
             const expandIcon = item.querySelector('.expand-icon');
-            if (expandIcon) expandIcon.textContent = '▼';
+            if (expandIcon) expandIcon.textContent = ICON.chevronDown;
         });
     }
 }
@@ -1312,7 +1352,7 @@ function collapseTree(collapseAll) {
         }
         item.dataset.expanded = 'false';
         const expandIcon = item.querySelector('.expand-icon');
-        if (expandIcon) expandIcon.textContent = '▶';
+        if (expandIcon) expandIcon.textContent = ICON.chevronRight;
     });
 }
 
@@ -1499,12 +1539,13 @@ function buildGroupAddressObjectRows(address) {
         const props = obj.properties || {};
         const flags = props ? (props.flags || props.flags_text || '') : '';
         const dptRaw = props.datapoint_type || '';
+        const sizeValue = props.object_size || resolveDptSize(dptRaw);
         const deviceAddress = parent && parent.properties ? parent.properties.address : '';
         const buildingInfo = resolveBuildingInfo(deviceAddress);
         const numberKey = props.number != null ? props.number : idx;
         return {
             id: `${obj.id || address}-${numberKey}`,
-            icon: '🧩',
+            icon: ICON.object,
             kind: 'group-object',
             graphId: obj.id || '',
             data: {
@@ -1519,7 +1560,7 @@ function buildGroupAddressObjectRows(address) {
                 buildingFunction: props.building_function || buildingInfo.buildingFunction || '',
                 buildingPart: props.building_part || buildingInfo.buildingPart || '',
                 type: formatDptLabel(dptRaw),
-                size: resolveDptSize(dptRaw),
+                size: sizeValue,
                 ...buildFlagColumns(flags),
             },
             raw: { node: obj, device: parent }
@@ -1840,7 +1881,7 @@ function syncTableSelectionFromGraph(cell) {
     }
     row.classList.add('selected-row');
     selectedTableRow = row;
-    selectTableItem(match);
+    selectTableItem(match, { fromGraph: true });
 }
 
 function ensureRowVisible(rowId, container) {
@@ -1857,17 +1898,26 @@ function ensureRowVisible(rowId, container) {
     }
 }
 
-function selectTableItem(item) {
+function selectTableItem(item, options = {}) {
+    const fromGraph = options.fromGraph === true;
     if (!item) {
         state.selectedId = null;
-        renderPropertiesPanel(null);
+        if (!fromGraph) {
+            setSelectionFromTable(null);
+            selectCell(null);
+        }
         return;
     }
     state.selectedId = item.id;
-    // Update Properties Panel
-    renderPropertiesPanel(item);
-
-    linkSelectionToGraph(item);
+    const graphCell = fromGraph ? null : resolveGraphCell(item);
+    if (graphCell) {
+        selectCell(graphCell);
+        return;
+    }
+    if (!fromGraph) {
+        setSelectionFromTable(item);
+        linkSelectionToGraph(item);
+    }
 }
 
 function linkSelectionToGraph(item) {
@@ -1882,166 +1932,11 @@ function linkSelectionToGraph(item) {
     }
 }
 
-function renderPropertiesPanel(item) {
-    const dom = getDom();
-    const panel = dom.propertiesPanel;
-
-    if (!item) {
-        panel.innerHTML = '<div class="empty-state">Select an item to view properties.</div>';
-        return;
-    }
-
-    const d = item.data || {};
-    const raw = item.raw;
-    let content = '';
-
-    const kind = item.kind || (item.icon === '🔗' ? 'group-address' : (item.icon === '🔌' ? 'device' : 'object'));
-    const headerTitle = d.name || d.address || d.object || d.segment || d.line || d.area || 'Selection';
-    const headerSubtitle = d.address || d.group || d.line || d.area || '';
-
-    content += `
-        <div class="panel-header">
-            <div class="panel-type">${formatKindLabel(kind)}</div>
-            <div class="panel-title">${headerTitle}</div>
-            ${headerSubtitle ? `<div class="panel-subtitle">${headerSubtitle}</div>` : ''}
-        </div>
-    `;
-
-    if (kind === 'group-address') {
-        content += '<div class="panel-section"><h3>General</h3>';
-        content += createPropGroup('Name', d.name);
-        content += createPropGroup('Address', d.address);
-        if (d.sub) content += createPropGroup('Sub Group', d.sub);
-        if (d.desc) content += createPropGroup('Description', d.desc);
-        content += '</div>';
-        content += '<div class="panel-section"><h3>Data Type</h3>';
-        if (d.type) content += createPropGroup('DPT', d.type);
-        if (d.len) content += createPropGroup('Size', d.len);
-        content += '</div>';
-        if (d.assoc != null) {
-            content += '<div class="panel-section"><h3>Associations</h3>';
-            content += createPropGroup('Linked Objects', String(d.assoc));
-            content += '</div>';
-        }
-    } else if (kind === 'device') {
-        content += '<div class="panel-section"><h3>General</h3>';
-        content += createPropGroup('Name', d.name);
-        content += createPropGroup('Address', d.address);
-        if (d.desc) content += createPropGroup('Description', d.desc);
-        content += '</div>';
-        content += '<div class="panel-section"><h3>Product Info</h3>';
-        if (d.man) content += createPropGroup('Manufacturer', d.man);
-        if (d.prod) content += createPropGroup('Product', d.prod);
-        if (d.app) content += createPropGroup('Application', d.app);
-        content += '</div>';
-        const ipAssignment = raw && raw.ip_assignment ? raw.ip_assignment : '';
-        const ipAddress = raw && raw.ip_address ? raw.ip_address : '';
-        const ipMask = raw && raw.ip_subnet_mask ? raw.ip_subnet_mask : '';
-        const ipGateway = raw && raw.ip_default_gateway ? raw.ip_default_gateway : '';
-        const macAddress = raw && raw.mac_address ? raw.mac_address : '';
-        if (ipAssignment || ipAddress || ipMask || ipGateway || macAddress) {
-            content += '<div class="panel-section"><h3>Network</h3>';
-            if (ipAssignment) content += createPropGroup('IP Assignment', ipAssignment);
-            if (ipAddress) content += createPropGroup('IP Address', ipAddress);
-            if (ipMask) content += createPropGroup('Subnet Mask', ipMask);
-            if (ipGateway) content += createPropGroup('Default Gateway', ipGateway);
-            if (macAddress) content += createPropGroup('MAC Address', macAddress);
-            content += '</div>';
-        }
-    } else if (kind === 'group-object') {
-        const link = raw && raw.link ? raw.link : (raw && raw.node ? raw.node.properties : raw);
-        const device = raw && raw.device ? raw.device : null;
-        const flagsText = link && link.flags ? formatGroupFlags(link.flags) : (link && link.flags_text ? link.flags_text : '');
-        const groupAddress = d.group || (link && link.group_address ? link.group_address : '');
-        content += '<div class="panel-section"><h3>Object</h3>';
-        content += createPropGroup('Number', d.number);
-        content += createPropGroup('Name', d.object);
-        if (d.func) content += createPropGroup('Function', d.func);
-        if (d.desc) content += createPropGroup('Description', d.desc);
-        if (d.channel) content += createPropGroup('Channel', d.channel);
-        if (groupAddress) content += createPropGroup('Group Address', groupAddress);
-        if (d.type) content += createPropGroup('DPT', d.type);
-        if (d.size) content += createPropGroup('Size', d.size);
-        if (flagsText) content += createPropGroup('Flags', flagsText);
-        if (d.security) content += createPropGroup('Security', d.security);
-        if (d.buildingFunction) content += createPropGroup('Building Function', d.buildingFunction);
-        if (d.buildingPart) content += createPropGroup('Building Part', d.buildingPart);
-        content += '</div>';
-        if (device) {
-            content += '<div class="panel-section"><h3>Device</h3>';
-            content += createPropGroup('Address', device.properties ? device.properties.address : device.individual_address);
-            content += createPropGroup('Name', device.properties ? device.properties.name : device.name);
-            content += '</div>';
-        }
-    } else if (kind === 'line') {
-        content += '<div class="panel-section"><h3>Line</h3>';
-        content += createPropGroup('Line', d.line);
-        if (d.name) content += createPropGroup('Name', d.name);
-        if (d.desc) content += createPropGroup('Description', d.desc);
-        if (d.medium) content += createPropGroup('Medium', d.medium);
-        content += '</div>';
-    } else if (kind === 'segment') {
-        content += '<div class="panel-section"><h3>Segment</h3>';
-        content += createPropGroup('Segment', d.segment);
-        if (d.name) content += createPropGroup('Name', d.name);
-        if (d.medium) content += createPropGroup('Medium', d.medium);
-        if (d.domain) content += createPropGroup('Domain', d.domain);
-        content += '</div>';
-    } else if (kind === 'area') {
-        content += '<div class="panel-section"><h3>Area</h3>';
-        content += createPropGroup('Area', d.area);
-        if (d.name) content += createPropGroup('Name', d.name);
-        if (d.desc) content += createPropGroup('Description', d.desc);
-        content += '</div>';
-    } else if (kind === 'building-space') {
-        content += '<div class="panel-section"><h3>Space</h3>';
-        content += createPropGroup('Name', d.name || d.location);
-        if (d.address) content += createPropGroup('Address', d.address);
-        if (d.desc) content += createPropGroup('Description', d.desc);
-        content += '</div>';
-    } else {
-        content += '<div class="panel-section"><h3>Details</h3>';
-        Object.entries(d).forEach(([key, value]) => {
-            content += createPropGroup(key, value);
-        });
-        content += '</div>';
-    }
-
-    panel.innerHTML = content;
-}
-
-function createPropGroup(label, value) {
-    return `
-        <div class="prop-group">
-            <label class="prop-label">${label}</label>
-            <input type="text" class="prop-value" value="${value || ''}" readonly>
-        </div>
-    `;
-}
-
-function formatKindLabel(kind) {
-    switch (kind) {
-        case 'group-address':
-            return 'Group Address';
-        case 'group-main':
-            return 'Main Group';
-        case 'group-middle':
-            return 'Middle Group';
-        case 'group-object':
-            return 'Group Object';
-        case 'device':
-            return 'Device';
-        case 'line':
-            return 'Line';
-        case 'segment':
-            return 'Segment';
-        case 'area':
-            return 'Area';
-        case 'building-space':
-            return 'Building Space';
-        default:
-            return 'Item';
-    }
+function resolveGraphCell(item) {
+    if (!state.graph || !item) return null;
+    const graphId = item.graphId || resolveGraphIdFromRow(item);
+    if (!graphId) return null;
+    return state.graph.getCell(graphId) || null;
 }
 
 // ----------------------------------------------------------------------
@@ -2068,7 +1963,7 @@ function toggleSidebar() {
     dom.leftResizer.style.display = isCollapsed ? 'none' : 'block';
 
     const btn = dom.sidebar.querySelector('.panel-toggle-btn');
-    if (btn) btn.textContent = isCollapsed ? '▶' : '◀';
+    if (btn) btn.textContent = isCollapsed ? ICON.chevronRight : ICON.chevronLeft;
 }
 
 function toggleGraphFullscreen() {
@@ -2098,7 +1993,7 @@ function toggleGraphFullscreen() {
 function updateFullscreenButton(enabled) {
     const btn = document.getElementById('btn-graph-fullscreen');
     if (btn) {
-        btn.textContent = enabled ? '🗗 Exit Full Screen' : '⛶ Full Screen';
+        btn.textContent = enabled ? `${ICON.fullscreenExit} Exit Full Screen` : `${ICON.fullscreen} Full Screen`;
     }
 }
 
@@ -2122,7 +2017,7 @@ function toggleProperties() {
     dom.rightResizer.style.display = isCollapsed ? 'none' : 'block';
 
     const btn = dom.propertiesSidebar.querySelector('.panel-toggle-btn');
-    if (btn) btn.textContent = isCollapsed ? '◀' : '▶';
+    if (btn) btn.textContent = isCollapsed ? ICON.chevronLeft : ICON.chevronRight;
 }
 
 function initializeResizers() {

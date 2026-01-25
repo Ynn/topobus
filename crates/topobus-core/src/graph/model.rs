@@ -390,6 +390,9 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
             if let Some(desc) = &link.description {
                 obj_properties.insert("description".to_string(), desc.clone());
             }
+            if let Some(size) = &link.object_size {
+                obj_properties.insert("object_size".to_string(), size.clone());
+            }
             if let Some(security) = &link.security {
                 obj_properties.insert("security".to_string(), security.clone());
             }
@@ -415,9 +418,6 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
                 }
                 if flags.update {
                     flags_str.push("U");
-                }
-                if flags.read_on_init {
-                    flags_str.push("I");
                 }
                 obj_properties.insert("flags".to_string(), flags_str.join(" "));
             }
