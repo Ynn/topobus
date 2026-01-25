@@ -1,7 +1,7 @@
 import { getDom } from './dom.js';
 import { state } from './state.js';
 import { applyFiltersAndRender } from './filters.js';
-import { formatDeviceName } from './utils.js';
+import { formatDeviceName, measureTextWidth } from './utils.js';
 import { selectCell, highlightCell, registerSelectionListener } from './selection.js';
 import { focusCell, fitContent, exportSvg, ensureDeviceVisible } from './interactions.js';
 import { setSelectionFromTable, setSelectionFromTree } from './selection_store.js';
@@ -70,8 +70,63 @@ let tableScrollBound = false;
 let tableRenderFrame = null;
 const TABLE_VIRTUAL_THRESHOLD = 500;
 const TABLE_OVERSCAN = 12;
+const TABLE_COLUMN_MIN_WIDTH = 28;
 let tableVisibleStart = 0;
 let tableVisibleEnd = 0;
+
+function ensureInitialColumnWidths(sampleRow) {
+    if (tableColumnWidths.size) return;
+    if (!sampleRow || !sampleRow.data) return;
+    const dom = getDom();
+    if (!dom || !dom.tableHead) return;
+
+    // Derive font from the rendered header for consistent measurements.
+    const anyHeader = dom.tableHead.querySelector('th[data-sort-index="0"]');
+    const computedFont = anyHeader ? getComputedStyle(anyHeader).font : '';
+    const font = computedFont && computedFont !== 'normal' ? computedFont : '600 12px sans-serif';
+
+    const keys = tableColumnKeys.length ? tableColumnKeys : Object.keys(sampleRow.data);
+    for (let idx = 0; idx < tableColumnLabels.length; idx += 1) {
+        const key = keys[idx];
+        const label = String(tableColumnLabels[idx] || '');
+        const labelUpper = label.toUpperCase();
+        const sampleValue = key != null ? String(sampleRow.data[key] ?? '') : '';
+
+        // Base width: header text + padding + sort icon space.
+        const headerTextW = measureTextWidth(labelUpper, font);
+        const sampleTextW = sampleValue ? measureTextWidth(sampleValue, font) : 0;
+
+        // 10px left + 26px right reserved in CSS for label absolute positioning.
+        // Add a small buffer for letter-spacing / rounding.
+        const base = headerTextW + 10 + 26 + 10;
+        const withSample = Math.max(base, Math.min(sampleTextW + 10 + 26 + 10, 380));
+        const width = Math.max(TABLE_COLUMN_MIN_WIDTH, Math.ceil(Math.min(withSample, 520)));
+        tableColumnWidths.set(idx, width);
+    }
+}
+
+function ensureTableColGroup(totalColumns) {
+    const dom = getDom();
+    if (!dom || !dom.mainTable) return;
+    const table = dom.mainTable;
+    let colgroup = table.querySelector('colgroup');
+    if (!colgroup) {
+        colgroup = document.createElement('colgroup');
+        table.insertBefore(colgroup, table.firstChild);
+    }
+    const wanted = Math.max(0, Number(totalColumns) || 0);
+    const existing = colgroup.children.length;
+    if (existing !== wanted) {
+        colgroup.innerHTML = '';
+        for (let i = 0; i < wanted; i += 1) {
+            colgroup.appendChild(document.createElement('col'));
+        }
+    }
+
+    // Keep the first two columns (icon + kind) compact.
+    if (colgroup.children[0]) colgroup.children[0].style.width = '40px';
+    if (colgroup.children[1]) colgroup.children[1].style.width = '40px';
+}
 
 function nextTreeId() {
     treeIdCounter += 1;
@@ -1672,14 +1727,18 @@ function renderTableHeader(columns, sampleRow, keepOrder = false) {
     const headers = tableColumnLabels.map((label, idx) => {
         const cls = 'sortable';
         const handle = `<span class="col-resizer" data-col-index="${idx}"></span>`;
-        return `<th class="${cls}" data-sort-index="${idx}" draggable="true">${label}${handle}</th>`;
+        return `<th class="${cls}" data-sort-index="${idx}" draggable="true"><span class="th-label">${label}</span>${handle}</th>`;
     });
     const headCells = [
         '<th></th>',
         '<th></th>',
         ...headers
     ];
+    ensureTableColGroup(headCells.length);
     dom.tableHead.innerHTML = `<tr>${headCells.join('')}</tr>`;
+
+    // Populate default widths so headers are readable on first display.
+    ensureInitialColumnWidths(sampleRow);
     applyColumnWidths();
 }
 
@@ -1881,6 +1940,12 @@ function applyTableCellNavigation(row, key, value, cell) {
     } else if (row.kind === 'device' && key === 'address') {
         navKind = 'device';
         navValue = String(value || '');
+    } else if (row.kind === 'area' && key === 'area') {
+        navKind = 'topology-area';
+        navValue = String(value || '');
+    } else if (row.kind === 'line' && key === 'line') {
+        navKind = 'topology-line';
+        navValue = String(value || '');
     } else if (row.kind === 'group-object') {
         if (key === 'deviceAddress') {
             navKind = 'device';
@@ -1979,12 +2044,38 @@ function getTableValue(row, index) {
 function compareTableValues(a, b) {
     const aStr = String(a || '');
     const bStr = String(b || '');
+    const aAddr = parseAddressParts(aStr);
+    const bAddr = parseAddressParts(bStr);
+    if (aAddr && bAddr) {
+        const len = Math.max(aAddr.length, bAddr.length);
+        for (let i = 0; i < len; i += 1) {
+            const aPart = aAddr[i] ?? -1;
+            const bPart = bAddr[i] ?? -1;
+            if (aPart !== bPart) return aPart - bPart;
+        }
+        return 0;
+    }
     const aNum = Number(aStr.replace(/[^\d.-]/g, ''));
     const bNum = Number(bStr.replace(/[^\d.-]/g, ''));
     if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
         if (aNum !== bNum) return aNum - bNum;
     }
     return aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function parseAddressParts(value) {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (!/[/.]/.test(raw)) return null;
+    const parts = raw.split(/[/.]/).filter(Boolean);
+    if (parts.length < 2 || parts.length > 4) return null;
+    const numbers = [];
+    for (const part of parts) {
+        if (!/^\d+$/.test(part)) return null;
+        numbers.push(Number(part));
+    }
+    return numbers;
 }
 
 function resolveNavigationTargetFromTable(event) {
@@ -2244,6 +2335,10 @@ function registerNavigationHandlers() {
             navigateToGroupObject(detail);
         } else if (detail.type === 'building-space') {
             navigateToBuildingSpace(detail.address || detail.spaceId || '');
+        } else if (detail.type === 'topology-area') {
+            navigateToTopologyArea(detail.address || '');
+        } else if (detail.type === 'topology-line') {
+            navigateToTopologyLine(detail.address || '');
         }
     };
     onNavigate(handler);
@@ -2333,6 +2428,53 @@ function navigateToBuildingSpace(spaceId) {
     });
 }
 
+function navigateToTopologyArea(areaKey) {
+    if (!areaKey) return;
+    switchViewType('topology', true);
+    switchContentTab('table');
+    const selector = buildTreeSelector('topology-area', areaKey);
+    const attempt = () => {
+        const treeItem = findTreeItemBySelector(selector, null);
+        if (treeItem) {
+            applyTreeSelection(treeItem, { scrollIntoView: true });
+            return true;
+        }
+        return false;
+    };
+    if (attempt()) return;
+    requestAnimationFrame(() => {
+        if (attempt()) return;
+        setTimeout(attempt, 50);
+    });
+}
+
+function parseTopologyLineKey(value) {
+    const parts = String(value || '').split('.');
+    if (parts.length < 2) return { area: '', line: '' };
+    return { area: parts[0], line: parts[1] };
+}
+
+function navigateToTopologyLine(lineKey) {
+    const parsed = parseTopologyLineKey(lineKey);
+    if (!parsed.area || !parsed.line) return;
+    switchViewType('topology', true);
+    switchContentTab('table');
+    const selector = buildTreeSelector('topology-line', `${parsed.area}.${parsed.line}`);
+    const attempt = () => {
+        const treeItem = findTreeItemBySelector(selector, null);
+        if (treeItem) {
+            applyTreeSelection(treeItem, { scrollIntoView: true });
+            return true;
+        }
+        return false;
+    };
+    if (attempt()) return;
+    requestAnimationFrame(() => {
+        if (attempt()) return;
+        setTimeout(attempt, 50);
+    });
+}
+
 function selectGroupObjectInTable(criteria) {
     if (!criteria) return;
     const number = criteria.number ? String(criteria.number) : '';
@@ -2389,6 +2531,16 @@ function buildTreeSelector(kind, value) {
     }
     if (kind === 'building-space') {
         return `.tree-item[data-kind="building-space"][data-space-id="${escaped}"]`;
+    }
+    if (kind === 'topology-area') {
+        return `.tree-item[data-kind="area"][data-area="${escaped}"]`;
+    }
+    if (kind === 'topology-line') {
+        const parsed = parseTopologyLineKey(value);
+        if (!parsed.area || !parsed.line) return '';
+        const areaEsc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(parsed.area) : String(parsed.area).replace(/"/g, '\\"');
+        const lineEsc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(parsed.line) : String(parsed.line).replace(/"/g, '\\"');
+        return `.tree-item[data-kind="line"][data-area="${areaEsc}"][data-line="${lineEsc}"]`;
     }
     return '';
 }
@@ -2518,7 +2670,9 @@ function setupResizer(resizer, panel, isLeft) {
             } else {
                 newWidth = startWidth - (ev.clientX - startX);
             }
-            if (newWidth > 150 && newWidth < 600) {
+            const minWidth = 150;
+            const maxWidth = isLeft ? 600 : Number.POSITIVE_INFINITY;
+            if (newWidth > minWidth && newWidth < maxWidth) {
                 panel.style.width = `${newWidth}px`;
                 panel.dataset.lastWidth = String(newWidth);
             }
@@ -2574,7 +2728,7 @@ function initializeTableSorting() {
         document.body.style.cursor = 'col-resize';
 
         const onMove = (ev) => {
-            const next = Math.max(60, startWidth + (ev.clientX - startX));
+            const next = Math.max(TABLE_COLUMN_MIN_WIDTH, startWidth + (ev.clientX - startX));
             setColumnWidth(index, next);
         };
         const onUp = () => {
@@ -2622,7 +2776,11 @@ function setColumnWidth(index, width) {
 function applyColumnWidths() {
     const dom = getDom();
     if (!dom || !dom.tableHead || !dom.tableBody) return;
+    const table = dom.mainTable;
+    const colgroup = table ? table.querySelector('colgroup') : null;
     tableColumnWidths.forEach((width, index) => {
+        const col = colgroup && colgroup.children ? colgroup.children[index + 2] : null;
+        if (col) col.style.width = `${width}px`;
         const headCell = dom.tableHead.querySelector(`th[data-sort-index="${index}"]`);
         if (headCell) headCell.style.width = `${width}px`;
         const cells = dom.tableBody.querySelectorAll(`tr td:nth-child(${index + 3})`);

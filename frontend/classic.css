@@ -860,7 +860,7 @@ table {
     border-collapse: separate;
     border-spacing: 0;
     font-size: 12px;
-    table-layout: auto;
+    table-layout: fixed;
 }
 
 th {
@@ -870,10 +870,13 @@ th {
     border-bottom: 2px solid var(--border-color);
     position: sticky;
     top: 0;
-    white-space: nowrap;
+    /* Important: allow shrinking below the header word width.
+       We keep the text itself on one line via .th-label (below). */
+    white-space: normal;
     font-weight: 600;
     color: var(--text-primary);
     font-size: 12px;
+    min-width: 0;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     z-index: 10;
@@ -882,6 +885,20 @@ th {
     overflow: hidden;
     text-overflow: ellipsis;
     border-right: 1px solid var(--border-color);
+}
+
+th .th-label {
+    /* Remove header text from normal flow so it doesn't clamp column min-width
+       when the table uses width: max-content (horizontal scrollbar mode). */
+    position: absolute;
+    left: 10px;
+    right: 26px;
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
 }
 
 th:hover {
@@ -893,18 +910,33 @@ th.sortable::after {
     content: ' ⇅';
     opacity: 0.3;
     font-size: 10px;
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
 }
 
 th.sort-asc::after {
     content: ' ▲';
     opacity: 1;
     color: var(--primary-blue);
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
 }
 
 th.sort-desc::after {
     content: ' ▼';
     opacity: 1;
     color: var(--primary-blue);
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
 }
 
 th:first-child,
@@ -920,6 +952,7 @@ th:nth-child(2) {
     width: 6px;
     height: 100%;
     cursor: col-resize;
+    z-index: 2;
 }
 
 .col-resizer::after {
@@ -941,6 +974,7 @@ td {
     text-overflow: ellipsis;
     color: var(--text-primary);
     font-size: 12px;
+    min-width: 0;
     border-right: 1px solid var(--border-color);
     height: var(--table-row-height);
     line-height: calc(var(--table-row-height) - 10px);
@@ -1200,6 +1234,22 @@ tr.table-spacer td {
 
 .panel-table tbody tr:nth-child(even) td {
     background: var(--bg-light);
+}
+
+.properties-sidebar .panel-table-wrap {
+    overflow-x: auto;
+    width: 100%;
+}
+
+.properties-sidebar .panel-table {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+}
+
+.properties-sidebar .panel-table th,
+.properties-sidebar .panel-table td {
+    white-space: nowrap;
 }
 
 .panel-item {

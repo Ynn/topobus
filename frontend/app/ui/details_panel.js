@@ -14,6 +14,14 @@ function createNavLink(label, kind, value) {
     return link;
 }
 
+function wrapPanelTable(table) {
+    if (!table) return table;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'panel-table-wrap';
+    wrapper.appendChild(table);
+    return wrapper;
+}
+
 function resetPropertiesTabs(dom) {
     if (!dom || !dom.propertiesTabs) return;
     dom.propertiesTabs.innerHTML = '';
@@ -229,7 +237,7 @@ function buildGroupObjectsSection(objects, childrenCount, addressesCount, option
         tbody.appendChild(row);
     });
     table.appendChild(tbody);
-    section.appendChild(table);
+    section.appendChild(wrapPanelTable(table));
     return section;
 }
 
@@ -313,7 +321,7 @@ function buildParametersSection(entries) {
         });
 
         table.appendChild(tbody);
-        groupSection.appendChild(table);
+        groupSection.appendChild(wrapPanelTable(table));
         section.appendChild(groupSection);
     });
     return section;
