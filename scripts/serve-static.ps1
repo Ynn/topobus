@@ -18,11 +18,20 @@ function Require-Command {
 
 Require-Command -Name 'wasm-pack' -Help 'wasm-pack is required: https://rustwasm.github.io/wasm-pack/installer/'
 
-$python = if (Get-Command python3 -ErrorAction SilentlyContinue) { 'python3' } elseif (Get-Command python -ErrorAction SilentlyContinue) { 'python' } else { $null }
+$python = $null
+
+# Try where.exe to get all python paths and skip WindowsApps alias
+$pythonPaths = where.exe python 2>$null
+if ($pythonPaths) {
+    $python = ($pythonPaths -split "`r?`n" | Where-Object { $_ -notmatch 'WindowsApps' } | Select-Object -First 1)
+}
+
 if (-not $python) {
-    Write-Error 'python3 (or python) is required to serve the static app.'
+    Write-Error 'Python is required to serve the static app.'
     exit 1
 }
+
+Write-Host "Using Python: $python"
 
 Write-Host "Building WASM into $wasmOut..."
 Push-Location (Join-Path $repoRoot 'crates\topobus-wasm')
