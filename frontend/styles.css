@@ -51,17 +51,8 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
-    background: repeating-linear-gradient(0deg,
-            rgba(15, 118, 110, 0.04),
-            rgba(15, 118, 110, 0.04) 1px,
-            transparent 1px,
-            transparent 26px),
-        repeating-linear-gradient(90deg,
-            rgba(15, 118, 110, 0.04),
-            rgba(15, 118, 110, 0.04) 1px,
-            transparent 1px,
-            transparent 26px),
-        radial-gradient(circle at 20% 20%, rgba(15, 118, 110, 0.08), transparent 55%);
+    /* Plain background for readability (all themes). */
+    background: var(--bg-white);
 }
 
 #paper-scroll {

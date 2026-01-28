@@ -1454,6 +1454,94 @@ tr.table-spacer td {
     font-size: 13px;
 }
 
+.update-btn {
+    border-color: var(--primary-blue);
+    color: var(--primary-blue);
+}
+
+.update-btn:hover {
+    background: rgba(37, 99, 235, 0.08);
+}
+
+/* Badge when an update is available */
+.update-btn.update-available {
+    position: relative;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.update-btn.update-available::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--primary-blue);
+    box-shadow: 0 0 0 2px var(--bg-white);
+}
+
+/* Update toast */
+.update-toast {
+    position: fixed;
+    top: 56px;
+    right: 16px;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--bg-white);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+.update-toast__text {
+    font-weight: 600;
+}
+
+.update-toast__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.update-toast__btn {
+    background: rgba(37, 99, 235, 0.08);
+    border: 1px solid rgba(37, 99, 235, 0.3);
+    color: var(--primary-blue);
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.update-toast__btn:hover {
+    background: rgba(37, 99, 235, 0.14);
+}
+
+.update-toast__close {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.update-toast__close:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
 .search-input {
     padding: 6px 32px 6px 12px;
     border: 1px solid var(--border-color);

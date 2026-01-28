@@ -1,4 +1,17 @@
-const CACHE_NAME = 'topobus-static-v0.2.1';
+// Cache busting for GitHub Pages / static hosting.
+// The WASM crate build script generates `./sw.generated.js` which defines:
+//   self.__TOPOBUS_BUILD_ID__ = '<git sha>'
+// This file changes whenever a new commit is deployed, which forces SW updates
+// even if Cargo versions were not bumped.
+try {
+  importScripts('./sw.generated.js');
+} catch (_) {
+  // If the generated file is missing (e.g. running without building), fall back.
+  self.__TOPOBUS_BUILD_ID__ = self.__TOPOBUS_BUILD_ID__ || 'dev';
+}
+
+const BUILD_ID = self.__TOPOBUS_BUILD_ID__ || 'dev';
+const CACHE_NAME = `topobus-static-${BUILD_ID}`;
 const CORE_ASSETS = [
   './index.html',
   './styles.css',
@@ -54,12 +67,41 @@ const CORE_ASSETS = [
   './app/graph/styles.js'
 ];
 
+const CORE_URLS = CORE_ASSETS.map((asset) => new URL(asset, self.registration.scope).toString());
+const CORE_URL_SET = new Set(CORE_URLS);
+
+function isCoreAssetRequest(request) {
+  return CORE_URL_SET.has(request.url);
+}
+
+function isVersionSensitiveRequest(request) {
+  // For JS/CSS/WASM we prefer consistency over SWR to avoid mixed-version runtimes.
+  // These resources are expected to update via a new CACHE_NAME on deploy.
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const dest = request.destination;
+
+  if (dest === 'script' || dest === 'style' || dest === 'worker' || dest === 'sharedworker') return true;
+  if (path.endsWith('.js') || path.endsWith('.css') || path.endsWith('.wasm') || path.endsWith('.mjs')) return true;
+  return false;
+}
+
+self.addEventListener('message', (event) => {
+  const data = event && event.data ? event.data : null;
+  if (!data) return;
+  if (data && data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await cache.addAll(CORE_ASSETS);
-      await self.skipWaiting();
+      // Do not activate immediately on updates: we want a user-driven reload to
+      // avoid mixed-version runtimes. The page can send SKIP_WAITING when the
+      // user clicks "Reload".
     })()
   );
 });
@@ -108,7 +150,10 @@ async function handleAsset(request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
   if (cached) {
-    eventUpdateCache(request, cache);
+    // Avoid mixing versions: core assets are only updated on SW upgrade (new CACHE_NAME).
+    if (!isCoreAssetRequest(request) && !isVersionSensitiveRequest(request)) {
+      eventUpdateCache(request, cache);
+    }
     return cached;
   }
   try {

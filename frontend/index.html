@@ -67,10 +67,22 @@
                 <div class="tab" data-view-type="devices">🔌 Devices</div>
             </div>
             <div class="search-container" style="margin-left: auto; margin-right: 16px;">
+                <button class="icon-btn settings-btn update-btn" id="refresh-btn" title="Reload">↻</button>
                 <button class="icon-btn settings-btn" id="help-btn" title="Help">?</button>
                 <button class="icon-btn settings-btn" id="settings-btn" title="Settings">⚙</button>
                 <input type="text" id="search-input" class="search-input" placeholder="Search... (Ctrl+F)" autocomplete="off">
                 <button class="search-clear">×</button>
+            </div>
+        </div>
+
+        <!-- Update toast (shown when a new SW version is available) -->
+        <div id="update-toast" class="update-toast hidden" role="status" aria-live="polite">
+            <div class="update-toast__text">
+                New version available
+            </div>
+            <div class="update-toast__actions">
+                <button type="button" class="update-toast__btn" id="update-toast-reload">Reload</button>
+                <button type="button" class="update-toast__close" id="update-toast-close" aria-label="Close">✕</button>
             </div>
         </div>
 
@@ -79,7 +91,7 @@
             <!-- Left Sidebar -->
             <div class="sidebar" id="left-sidebar">
                 <div class="sidebar-header" id="sidebar-title">
-                    <span id="sidebar-title-text">Explorer</span>
+                    <span id="sidebar-title-text">Explore</span>
                     <div class="sidebar-actions">
                         <button class="icon-btn" id="btn-expand-all" title="Expand all">▾</button>
                         <button class="icon-btn" id="btn-collapse-all" title="Collapse all">▸</button>

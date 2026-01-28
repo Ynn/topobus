@@ -33,8 +33,7 @@ jobs:
         run: |
           mkdir -p dist
           cp -a frontend/. dist/
-          # Inject version into Service Worker for cache busting
-          sed -i "s/CACHE_NAME = 'topobus-static-v.*'/CACHE_NAME = 'topobus-static-${GITHUB_REF_NAME}'/" dist/sw.js
+          # SW cache busting is handled by `frontend/sw.generated.js` generated during the WASM build.
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

@@ -4,6 +4,10 @@
 
 /tmp
 
+# Generated PWA build-id artifacts (produced by crates/topobus-wasm/build.rs)
+frontend/sw.generated.js
+frontend/build-id.txt
+
 # User-specific stuff
 .idea/**/workspace.xml
 .idea/**/tasks.xml

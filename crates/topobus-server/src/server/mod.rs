@@ -20,6 +20,8 @@ pub async fn start_server(args: Args) -> Result<()> {
         // API routes
         .route("/api/upload", post(api::handle_upload))
         .route("/api/health", get(api::health_check))
+        // PWA: serve SW with explicit no-cache + injected version
+        .route("/sw.js", get(assets::serve_sw))
         .layer(DefaultBodyLimit::max(config.max_upload_size_bytes))
         .with_state(config.clone())
         // Static assets
