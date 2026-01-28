@@ -220,17 +220,53 @@ function normalizeDeviceFromProps(state, props, rawDevice) {
 }
 
 function normalizeGroupObjectFromProps(props, raw) {
+    const parseBool = (value) => {
+        if (value === true) return true;
+        if (value === false) return false;
+        if (value == null) return null;
+        const str = String(value).trim().toLowerCase();
+        if (str === 'true' || str === '1' || str === 'yes') return true;
+        if (str === 'false' || str === '0' || str === 'no') return false;
+        return null;
+    };
+
+    const parseGroupAddressList = (value) => {
+        if (!value) return [];
+        if (Array.isArray(value)) {
+            return value.map((v) => (v == null ? '' : String(v).trim())).filter(Boolean);
+        }
+        const str = String(value);
+        return str
+            .split(/[,\n\t\r\f\v ]+/)
+            .map((v) => v.trim())
+            .filter(Boolean);
+    };
+
     const link = raw && raw.link ? raw.link : null;
     const links = raw && Array.isArray(raw.links) ? raw.links : (link ? [link] : []);
     const groupAddresses = [];
+
+    // Prefer the precomputed full list (graph nodes export this as `group_addresses`).
+    parseGroupAddressList(props && props.group_addresses).forEach((address) => {
+        if (!groupAddresses.includes(address)) {
+            groupAddresses.push(address);
+        }
+    });
+
+    // Then add addresses from provided links (table selections often supply `raw.links`).
     links.forEach((entry) => {
         if (entry && entry.group_address && !groupAddresses.includes(entry.group_address)) {
             groupAddresses.push(entry.group_address);
         }
     });
-    if (!groupAddresses.length && props && props.group_address) {
+
+    // Fallback for minimal payloads.
+    if (props && props.group_address && !groupAddresses.includes(props.group_address)) {
         groupAddresses.push(props.group_address);
     }
+
+    const etsSending = parseBool(props.ets_sending != null ? props.ets_sending : (link ? link.ets_sending : null));
+    const etsReceiving = parseBool(props.ets_receiving != null ? props.ets_receiving : (link ? link.ets_receiving : null));
     return {
         number: props.number || (link ? link.number : ''),
         name: props.object || props.object_name || props.object_name_raw || (link ? link.object_name : ''),
@@ -246,7 +282,10 @@ function normalizeGroupObjectFromProps(props, raw) {
         security: props.security || (link ? link.security : ''),
         building_function: props.building_function || props.buildingFunction || (link ? link.building_function : ''),
         building_part: props.building_part || props.buildingPart || (link ? link.building_part : ''),
-        group_addresses: groupAddresses
+        group_addresses: groupAddresses,
+        ets_sending_address: props.ets_sending_address || (link ? link.ets_sending_address : ''),
+        ets_sending: etsSending,
+        ets_receiving: etsReceiving
     };
 }
 

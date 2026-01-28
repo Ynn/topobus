@@ -228,9 +228,10 @@ function buildGroupObjectsSection(objects, childrenCount, addressesCount, option
             if (f.write) active.push('W');
             if (f.transmit) active.push('T');
             if (f.update) active.push('U');
+            if (f.read_on_init) active.push('I');
             flagsCell.textContent = active.join(' ');
         } else if (obj.flags_text) {
-            flagsCell.textContent = obj.flags_text.replace(/I/g, '').replace(/\s+/g, ' ').trim();
+            flagsCell.textContent = obj.flags_text.replace(/\s+/g, ' ').trim();
         }
         row.appendChild(flagsCell);
 
@@ -532,6 +533,13 @@ export function renderDetails(entity, container, options = {}) {
         addRow(infoSection, 'Size', entity.object_size || resolveDptSize(entity.datapoint_type));
         addRow(infoSection, 'Description', entity.description);
         addRow(infoSection, 'Comment', entity.comment);
+        if (entity.ets_sending_address) {
+            addRowNode(
+                infoSection,
+                'Sending Address',
+                createNavLink(entity.ets_sending_address, 'group-address', entity.ets_sending_address)
+            );
+        }
         if (entity.group_addresses && entity.group_addresses.length) {
             const list = document.createElement('div');
             list.className = 'panel-link-list';
@@ -549,7 +557,8 @@ export function renderDetails(entity, container, options = {}) {
                 R: 'Read',
                 W: 'Write',
                 T: 'Transmit',
-                U: 'Update'
+                U: 'Update',
+                I: 'Init'
             };
             const activeFlags = formatFlagsText(entity.flags).split(' ');
             const flagContainer = document.createElement('div');

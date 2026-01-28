@@ -496,8 +496,8 @@ export function createNodeElement(node) {
     if (node.kind === 'groupobject') {
         const address = node.properties && node.properties.group_address ? node.properties.group_address : '';
         const theme = readTheme();
-        const isTx = node.properties && node.properties.is_transmitter === 'true';
-        const isRx = node.properties && node.properties.is_receiver === 'true';
+        const isTx = node.properties && node.properties.ets_sending === 'true';
+        const isRx = node.properties && node.properties.ets_receiving === 'true';
         const fill = isTx ? theme.objectFillTx : theme.objectFill;
         const addressColor = theme.ink;
         const element = new joint.shapes.knx.GroupObject({

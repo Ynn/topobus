@@ -129,8 +129,33 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Never cache the build id marker: the page polls it to detect new deployments.
+  // Serving it cache-first can cause persistent "update available" loops.
+  if (url.pathname.endsWith('/build-id.txt')) {
+    event.respondWith(handleBuildId(request));
+    return;
+  }
+
   event.respondWith(handleAsset(request));
 });
+
+async function handleBuildId(request) {
+  try {
+    // Force a network roundtrip when possible.
+    const noStore = new Request(request.url, {
+      method: 'GET',
+      headers: request.headers,
+      cache: 'no-store',
+      credentials: 'same-origin',
+      redirect: 'follow'
+    });
+    return await fetch(noStore);
+  } catch (error) {
+    // Best-effort offline fallback.
+    const cached = await caches.match(request);
+    return cached || new Response('Offline', { status: 504, statusText: 'Offline' });
+  }
+}
 
 async function handleNavigation(request) {
   const cache = await caches.open(CACHE_NAME);

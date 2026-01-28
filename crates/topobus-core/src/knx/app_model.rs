@@ -35,14 +35,6 @@ impl Flags {
         }
     }
 
-    pub(crate) fn is_transmitter(&self) -> bool {
-        matches!(self.transmit, Some(true)) || matches!(self.update, Some(true))
-    }
-
-    pub(crate) fn is_receiver(&self) -> bool {
-        matches!(self.write, Some(true)) || matches!(self.read, Some(true))
-    }
-
     pub(crate) fn to_model_flags(&self) -> ObjectFlags {
         ObjectFlags {
             communication: self.communication.unwrap_or(false),

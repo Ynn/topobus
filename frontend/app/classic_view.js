@@ -33,7 +33,7 @@ const viewConstants = {
 
 const tableLayouts = {
     groupAddresses: ['', '', 'Address', 'Name', 'Description', 'Data Type', 'Length', 'Associations'],
-    groupObjects: ['', '', 'Number', 'Object', 'Device Address', 'Device', 'Function', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'C', 'R', 'W', 'T', 'U'],
+    groupObjects: ['', '', 'Number', 'Object', 'Device Address', 'Device', 'Function', 'Description', 'Channel', 'Security', 'Building Function', 'Building Part', 'Data Type', 'Size', 'S', 'C', 'R', 'W', 'T', 'U', 'I'],
     topologyAreas: ['', '', 'Area', 'Name', 'Description'],
     topologyLines: ['', '', 'Line', 'Name', 'Description', 'Medium'],
     topologySegments: ['', '', 'Segment', 'Name', 'Medium', 'Domain'],
@@ -1214,10 +1214,10 @@ function splitGroupAddress(address) {
 function buildFlagColumns(flags) {
     const enabled = new Set();
     if (!flags) {
-        return { C: '', R: '', W: '', T: '', U: '' };
+        return { C: '', R: '', W: '', T: '', U: '', I: '' };
     }
     if (typeof flags === 'string') {
-        flags.toUpperCase().replace(/[^CRWTU]/g, '').split('').forEach((flag) => {
+        flags.toUpperCase().replace(/[^CRWTUI]/g, '').split('').forEach((flag) => {
             if (flag) enabled.add(flag);
         });
     } else {
@@ -1226,6 +1226,7 @@ function buildFlagColumns(flags) {
         if (flags.write) enabled.add('W');
         if (flags.transmit) enabled.add('T');
         if (flags.update) enabled.add('U');
+        if (flags.read_on_init) enabled.add('I');
     }
     const mark = (flag) => (enabled.has(flag) ? 'x' : '');
     return {
@@ -1233,7 +1234,8 @@ function buildFlagColumns(flags) {
         R: mark('R'),
         W: mark('W'),
         T: mark('T'),
-        U: mark('U')
+        U: mark('U'),
+        I: mark('I')
     };
 }
 
@@ -1697,6 +1699,7 @@ function buildGroupAddressObjectRows(address) {
                 buildingPart: props.building_part || buildingInfo.buildingPart || '',
                 type: formatDptLabel(dptRaw),
                 size: sizeValue,
+                S: props.ets_sending === 'true' ? 'x' : '',
                 ...buildFlagColumns(flags),
             },
             raw: { node: obj, device: parent }

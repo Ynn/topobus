@@ -3,7 +3,7 @@ import { resolveDatapointInfo } from '../dpt.js';
 export function formatFlagsText(flags) {
     if (!flags) return '';
     if (typeof flags === 'string') {
-        return flags.replace(/I/g, '').replace(/\s+/g, ' ').trim();
+        return flags.replace(/\s+/g, ' ').trim();
     }
     const active = [];
     if (flags.communication) active.push('C');
@@ -11,6 +11,7 @@ export function formatFlagsText(flags) {
     if (flags.write) active.push('W');
     if (flags.transmit) active.push('T');
     if (flags.update) active.push('U');
+    if (flags.read_on_init) active.push('I');
     return active.join(' ');
 }
 

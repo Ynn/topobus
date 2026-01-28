@@ -80,6 +80,17 @@ if ('serviceWorker' in navigator) {
             refreshBtn.addEventListener('click', async () => {
                 userRequestedReload = true;
                 refreshBtn.disabled = true;
+
+                // If we already detected a newer build id (polling) but the SW isn't
+                // in a waiting state yet, treat an explicit user reload as accepting
+                // that update to prevent the toast from reappearing indefinitely.
+                try {
+                    const pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
+                    if (pending) {
+                        localStorage.setItem(STORAGE_SEEN_BUILD_ID, pending);
+                        localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
+                    }
+                } catch {}
                 try {
                     if (waitingWorker) {
                         // User accepted update: mark pending build id as applied (best-effort).
@@ -216,6 +227,14 @@ if ('serviceWorker' in navigator) {
                             pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
                         } catch {
                             // If storage is unavailable, we can still prompt when SW is waiting.
+                        }
+
+                        // If storage contains a stale pending marker, clear it.
+                        if (pending && (pending === seen || remote === seen)) {
+                            try {
+                                localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
+                            } catch {}
+                            pending = null;
                         }
 
                         if (!seen) {

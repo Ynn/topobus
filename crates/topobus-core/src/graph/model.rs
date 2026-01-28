@@ -350,6 +350,20 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
             properties,
         });
 
+        // Precompute all group addresses per communication object (ComObjectInstanceRef) so that a
+        // selected group-object node can display the complete association list, not only the
+        // currently-linked group address.
+        let mut group_addresses_by_object: HashMap<String, Vec<String>> = HashMap::new();
+        for link in &device.group_links {
+            let Some(key) = link.com_object_ref_id.as_ref() else {
+                continue;
+            };
+            let entry = group_addresses_by_object.entry(key.clone()).or_default();
+            if !entry.iter().any(|addr| addr == &link.group_address) {
+                entry.push(link.group_address.clone());
+            }
+        }
+
         let mut sorted_links: Vec<&crate::knx::GroupLink> = device.group_links.iter().collect();
         sorted_links.sort_by(|a, b| {
             a.group_address
@@ -362,6 +376,18 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
             let obj_id = format!("{}_obj_{}", device_id, idx);
             let mut obj_properties = HashMap::new();
             obj_properties.insert("group_address".to_string(), link.group_address.clone());
+            if let Some(key) = link.com_object_ref_id.as_ref() {
+                if let Some(addresses) = group_addresses_by_object.get(key) {
+                    if !addresses.is_empty() {
+                        obj_properties.insert("group_addresses".to_string(), addresses.join(", "));
+                    }
+                }
+            }
+            if let Some(address) = &link.ets_sending_address {
+                if !address.trim().is_empty() {
+                    obj_properties.insert("ets_sending_address".to_string(), address.clone());
+                }
+            }
             obj_properties.insert("object_name".to_string(), link.object_name.clone());
             if let Some(name) = &link.object_name_raw {
                 obj_properties.insert("object_name_raw".to_string(), name.clone());
@@ -372,11 +398,11 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
             if let Some(text) = &link.object_function_text {
                 obj_properties.insert("object_function_text".to_string(), text.clone());
             }
+            obj_properties.insert("ets_sending".to_string(), link.ets_sending.to_string());
             obj_properties.insert(
-                "is_transmitter".to_string(),
-                link.is_transmitter.to_string(),
+                "ets_receiving".to_string(),
+                link.ets_receiving.to_string(),
             );
-            obj_properties.insert("is_receiver".to_string(), link.is_receiver.to_string());
 
             if let Some(dpt) = &link.datapoint_type {
                 obj_properties.insert("datapoint_type".to_string(), dpt.clone());
@@ -419,6 +445,9 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
                 if flags.update {
                     flags_str.push("U");
                 }
+                if flags.read_on_init {
+                    flags_str.push("I");
+                }
                 obj_properties.insert("flags".to_string(), flags_str.join(" "));
             }
 
@@ -437,8 +466,8 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
                 .or_default()
                 .push(GroupObjectLink {
                     id: obj_id,
-                    is_transmitter: link.is_transmitter,
-                    is_receiver: link.is_receiver,
+                    ets_sending: link.ets_sending,
+                    ets_receiving: link.ets_receiving,
                 });
         }
     }
@@ -495,14 +524,13 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
         }
         objects.sort_by(|a, b| a.id.cmp(&b.id));
 
-        let transmitters: Vec<&GroupObjectLink> =
-            objects.iter().filter(|obj| obj.is_transmitter).collect();
+        let senders: Vec<&GroupObjectLink> = objects.iter().filter(|obj| obj.ets_sending).collect();
         let receivers: Vec<&GroupObjectLink> =
-            objects.iter().filter(|obj| obj.is_receiver).collect();
+            objects.iter().filter(|obj| obj.ets_receiving).collect();
 
-        let directed = transmitters.len() == 1 && !receivers.is_empty();
+        let directed = senders.len() == 1 && !receivers.is_empty();
         if directed {
-            let source = transmitters[0];
+            let source = senders[0];
             for obj in objects.iter() {
                 if obj.id == source.id {
                     continue;
@@ -545,6 +573,6 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
 #[derive(Clone)]
 struct GroupObjectLink {
     id: String,
-    is_transmitter: bool,
-    is_receiver: bool,
+    ets_sending: bool,
+    ets_receiving: bool,
 }

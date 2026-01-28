@@ -518,8 +518,8 @@ function renderHierarchy(node, cells, absoluteX, absoluteY, metrics) {
             const groupAddress = obj.node && obj.node.properties && obj.node.properties.group_address
                 ? obj.node.properties.group_address
                 : '';
-            const isTx = obj.node && obj.node.properties && obj.node.properties.is_transmitter === 'true';
-            const isRx = obj.node && obj.node.properties && obj.node.properties.is_receiver === 'true';
+            const isTx = obj.node && obj.node.properties && obj.node.properties.ets_sending === 'true';
+            const isRx = obj.node && obj.node.properties && obj.node.properties.ets_receiving === 'true';
             const fill = isTx ? theme.objectFillTx : theme.objectFill;
             const addressColor = theme.ink;
             const childWidth = node.width - settings.padding * 2;

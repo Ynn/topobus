@@ -112,6 +112,10 @@ pub struct DeviceInfo {
 /// Link between a device communication object and a group address
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupLink {
+    /// Unique identifier of the `ComObjectInstanceRef` in the project (when available).
+    /// Useful to regroup multiple GroupLink entries that belong to the same communication object.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub com_object_ref_id: Option<String>,
     /// Communication object name
     pub object_name: String,
     /// Raw ComObject Name (if available)
@@ -122,11 +126,16 @@ pub struct GroupLink {
     pub object_function_text: Option<String>,
     /// Group address in format "M/S/A" or "M/A"
     pub group_address: String,
-    /// Whether this object transmits on this group address
-    pub is_transmitter: bool,
-    /// Whether this object receives from this group address
-    /// Whether this object receives from this group address
-    pub is_receiver: bool,
+    /// ETS sending group address for this communication object (derived from the first entry in `Links`).
+    ///
+    /// This is the address ETS considers as the "Sending" association, regardless of which linked
+    /// group address this particular `GroupLink` instance refers to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ets_sending_address: Option<String>,
+    /// ETS link role: whether this group address is the sending one for this communication object
+    pub ets_sending: bool,
+    /// ETS link role: whether this group address is a receiving one for this communication object
+    pub ets_receiving: bool,
     /// Channel name (if available)
     pub channel: Option<String>,
     /// Datapoint type (e.g., "DPST-1-1")

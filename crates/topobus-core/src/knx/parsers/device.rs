@@ -229,11 +229,7 @@ pub(crate) fn extract_devices<R: Read + Seek>(
             }
 
             let link_attr = com_ref.attribute("Links").unwrap_or("");
-            let mut link_ids: Vec<String> = link_attr
-                .split([' ', ','])
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_string())
-                .collect();
+            let mut link_ids: Vec<String> = parse_links_attribute(link_attr);
             if link_ids.is_empty() {
                 link_ids = extract_connector_links(&com_ref);
             }
@@ -268,7 +264,7 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                 app,
                 ref_id,
             );
-            let com_flags = com_data.flags;
+                let com_flags = com_data.flags;
             let link_security = attr_value(&com_ref, "Security");
             let link_building_function = attr_value(&com_ref, "BuildingFunction")
                 .or_else(|| attr_value(&com_ref, "BuildingFunctionRefId"))
@@ -297,6 +293,10 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                 &arg_values,
             );
 
+            // ETS/KNX project schema rule: the first group address link is always the sending one.
+            // Keep the resolved address to expose it for all links of this ComObjectInstanceRef.
+            let mut ets_sending_address: Option<String> = None;
+
             for (link_index, link_id) in link_ids.iter().enumerate() {
                 let info = group_address_by_id
                     .get(link_id)
@@ -304,6 +304,10 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                 let address = info
                     .map(|ga| ga.address.clone())
                     .unwrap_or_else(|| link_id.to_string());
+
+                if link_index == 0 {
+                    ets_sending_address = Some(address.clone());
+                }
                 let fallback = info
                     .map(|ga| ga.name.clone())
                     .filter(|name| !name.trim().is_empty())
@@ -344,15 +348,17 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                     parts.join(" ")
                 };
 
-                let is_transmitter = com_flags.is_transmitter() && link_index == 0;
+                let ets_sending = link_index == 0;
                 group_links.push(GroupLink {
+                    com_object_ref_id: Some(ref_id.to_string()),
                     object_name,
                     object_name_raw: object_name_raw.clone(),
                     object_text: object_text.clone(),
                     object_function_text: object_function_text.clone(),
                     group_address: address,
-                    is_transmitter,
-                    is_receiver: com_flags.is_receiver(),
+                    ets_sending_address: ets_sending_address.clone(),
+                    ets_sending,
+                    ets_receiving: link_index != 0,
                     channel: com_data.channel.clone(),
                     datapoint_type: com_data.datapoint_type.clone(),
                     number: adjusted_number.or(com_data.number),
@@ -404,6 +410,16 @@ pub(crate) fn extract_devices<R: Read + Seek>(
     Ok(devices)
 }
 
+fn parse_links_attribute(link_attr: &str) -> Vec<String> {
+    // `Links` is a whitespace-separated list of GroupAddressRefId values.
+    // We also accept commas for robustness (some exports/tools may add them).
+    link_attr
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .collect()
+}
+
 fn extract_connector_links(com_ref: &roxmltree::Node) -> Vec<String> {
     let mut ids = Vec::new();
     let connectors = com_ref
@@ -434,6 +450,25 @@ fn extract_connector_links(com_ref: &roxmltree::Node) -> Vec<String> {
         }
     }
     ids
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_links_attribute;
+
+    #[test]
+    fn parse_links_attribute_preserves_order_and_splits_whitespace() {
+        let input = " G-1\nG-2\tG-3  G-4 ";
+        let out = parse_links_attribute(input);
+        assert_eq!(out, vec!["G-1", "G-2", "G-3", "G-4"]);
+    }
+
+    #[test]
+    fn parse_links_attribute_accepts_commas_without_reordering() {
+        let input = "G-1,G-2, G-3";
+        let out = parse_links_attribute(input);
+        assert_eq!(out, vec!["G-1", "G-2", "G-3"]);
+    }
 }
 
 fn manufacturer_id_from_ref(value: &str) -> Option<String> {
