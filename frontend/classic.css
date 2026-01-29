@@ -47,6 +47,11 @@ body {
     --coupler-border: #0ea5e9;
     --object-fill: #fef3c7;
     --object-fill-tx: #dcfce7;
+    /* Graph GroupObject semantic fills */
+    --graph-object-fill-s-t: #dcfce7;
+    --graph-object-fill-s: #dbeafe;
+    --graph-object-fill-no-c: #e2e8f0;
+    --graph-object-fill-other: #fef3c7;
     --object-border: #f59e0b;
     --line-fill: rgba(14, 165, 233, 0.12);
     --line-border: #0ea5e9;
@@ -121,6 +126,11 @@ body {
     --coupler-border: #2b6f87;
     --object-fill: #fae7c4;
     --object-fill-tx: #dff2ea;
+    /* Graph GroupObject semantic fills (Latte): green / blue / grey / yellow */
+    --graph-object-fill-s-t: #dff2ea;
+    --graph-object-fill-s: #dbe7ff;
+    --graph-object-fill-no-c: #e6e9ef;
+    --graph-object-fill-other: #fae7c4;
     --object-border: #d3b57f;
     --line-fill: rgba(23, 146, 153, 0.1);
     --line-border: var(--ctp-teal);
@@ -217,6 +227,11 @@ body {
     --graph-coupler-border: #2b6f87;
     --graph-object-fill: #fae7c4;
     --graph-object-fill-tx: #dff2ea;
+    /* Graph GroupObject semantic fills (Latte): green / blue / grey / yellow */
+    --graph-object-fill-s-t: #dff2ea;
+    --graph-object-fill-s: #dbe7ff;
+    --graph-object-fill-no-c: #e6e9ef;
+    --graph-object-fill-other: #fae7c4;
     --graph-object-border: #d3b57f;
     --graph-line-fill: rgba(23, 146, 153, 0.1);
     --graph-line-border: #179299;

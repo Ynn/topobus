@@ -501,7 +501,16 @@ export function createNodeElement(node) {
         const theme = readTheme();
         const isTx = node.properties && node.properties.ets_sending === 'true';
         const isRx = node.properties && node.properties.ets_receiving === 'true';
-        const fill = isTx ? theme.objectFillTx : theme.objectFill;
+        const flags = node.properties && node.properties.flags ? String(node.properties.flags) : '';
+        const hasC = !flags ? true : flags.includes('C');
+        const hasT = flags.includes('T');
+        const fill = !hasC
+            ? theme.objectFillNoC
+            : (isTx && hasT
+                ? theme.objectFillST
+                : (isTx
+                    ? theme.objectFillS
+                    : theme.objectFillOther));
         const addressColor = theme.ink;
         const element = new joint.shapes.knx.GroupObject({
             id: node.id,

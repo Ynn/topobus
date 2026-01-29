@@ -72,9 +72,18 @@ export function applyElementStyle(element, theme, selected) {
     }
 
     if (kind === 'groupobject' || kind === 'composite-object') {
-        const isTx = element.get('isTransmitter');
-        const isRx = element.get('isReceiver');
-        const fill = isTx ? theme.objectFillTx : theme.objectFill;
+        const isTx = Boolean(element.get('isTransmitter'));
+        const props = element.get('nodeProps') || {};
+        const flags = props.flags != null ? String(props.flags) : '';
+        const hasC = !flags ? true : flags.includes('C');
+        const hasT = flags.includes('T');
+        const fill = !hasC
+            ? theme.objectFillNoC
+            : (isTx && hasT
+                ? theme.objectFillST
+                : (isTx
+                    ? theme.objectFillS
+                    : theme.objectFillOther));
         const addressColor = theme.ink;
         element.attr('body/fill', fill);
         element.attr('body/stroke', selected ? theme.accent : theme.objectBorder);

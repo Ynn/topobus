@@ -2,6 +2,7 @@ use std::{
     env,
     fs,
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 fn main() {
@@ -12,11 +13,23 @@ fn main() {
     let frontend_dir = repo_root.join("frontend");
 
     // Prefer GitHub Actions SHA (works for Pages builds).
-    let build_id = env::var("GITHUB_SHA")
+    // For local dev, append a timestamp so the Service Worker cache is busted even
+    // without a new commit (otherwise core assets can stay stuck in cache).
+    let is_ci_build = env::var("GITHUB_SHA").is_ok();
+    let base_id = env::var("GITHUB_SHA")
         .ok()
         .and_then(|s| short_sha(&s))
         .or_else(|| read_git_sha(&repo_root).and_then(|s| short_sha(&s)))
         .unwrap_or_else(|| "dev".to_string());
+    let build_id = if is_ci_build {
+        base_id
+    } else {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        format!("{base_id}-{stamp}")
+    };
 
     // Write generated files into frontend/ so they are published by GitHub Pages.
     write_generated_files(&frontend_dir, &build_id);

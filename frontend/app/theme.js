@@ -24,6 +24,15 @@ export function readTheme(force = false) {
         couplerBorder: graphVal('coupler-border', '#2b6f87'),
         objectFill: graphVal('object-fill', '#fff7e6'),
         objectFillTx: graphVal('object-fill-tx', '#e2f4ee'),
+        // GroupObject semantic fills (graph only):
+        // - S+T: ETS sending + KNX transmit
+        // - S: ETS sending only
+        // - NoC: KNX Communication flag disabled
+        // - Other: default catch-all
+        objectFillST: graphVal('object-fill-s-t', graphVal('object-fill-tx', '#e2f4ee')),
+        objectFillS: graphVal('object-fill-s', graphVal('object-fill', '#fff7e6')),
+        objectFillNoC: graphVal('object-fill-no-c', '#e2e8f0'),
+        objectFillOther: graphVal('object-fill-other', graphVal('object-fill', '#fff7e6')),
         objectBorder: graphVal('object-border', '#d7b56a'),
         lineFill: graphVal('line-fill', 'rgba(15,118,110,0.08)'),
         lineBorder: graphVal('line-border', '#0f766e'),
