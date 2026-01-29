@@ -1,7 +1,7 @@
 import { state } from '../state.js';
 import { getDom } from '../dom.js';
 import { readTheme } from '../theme.js';
-import { formatDeviceName } from '../utils.js';
+import { compareIndividualAddress, formatDeviceName } from '../utils.js';
 import { layoutGroupView, layoutTopologyView, alignGroupLinks, normalizeContainerLayout } from './layout.js';
 import { renderCompositeGraph } from './composite.js';
 import { renderBuildingGraph } from './building.js';
@@ -241,15 +241,11 @@ export function renderGraph(projectData, viewType) {
     });
 
     const nodeById = new Map(nodesToRender.map(node => [node.id, node]));
+    const groupDeviceEdges = viewType === 'group'
+        ? buildGroupDeviceEdges(nodesToRender)
+        : null;
     const filteredEdges = viewType === 'group'
-        ? graphData.edges.filter((edge) => {
-            const sourceNode = nodeById.get(edge.source);
-            const targetNode = nodeById.get(edge.target);
-            if (!sourceNode || !targetNode) return false;
-            if (sourceNode.kind !== 'groupobject' || targetNode.kind !== 'groupobject') return true;
-            if (!sourceNode.parent_id || !targetNode.parent_id) return true;
-            return sourceNode.parent_id !== targetNode.parent_id;
-        })
+        ? groupDeviceEdges
         : graphData.edges;
     const links = filteredEdges.map(edge => createLinkElement(edge));
     elements.forEach(element => element.set('z', zForElement(element.get('kind'), viewType)));
@@ -267,7 +263,10 @@ export function renderGraph(projectData, viewType) {
         if (deviceCount > 1 && typeof window !== 'undefined' && window.ELK) {
             startGraphLoading('Optimizing layout...');
         }
-        layoutGroupView(nodesToRender, elementsById, { viewType });
+        layoutGroupView(nodesToRender, elementsById, {
+            viewType,
+            edgesForLayout: groupDeviceEdges
+        });
     } else {
         layoutTopologyView(nodesToRender, elementsById);
     }
@@ -501,16 +500,30 @@ export function createNodeElement(node) {
         const theme = readTheme();
         const isTx = node.properties && node.properties.ets_sending === 'true';
         const isRx = node.properties && node.properties.ets_receiving === 'true';
-        const flags = node.properties && node.properties.flags ? String(node.properties.flags) : '';
-        const hasC = !flags ? true : flags.includes('C');
-        const hasT = flags.includes('T');
-        const fill = !hasC
+        const category = node.properties && node.properties.semantic_category
+            ? String(node.properties.semantic_category)
+            : '';
+        const fill = category === 'no_communication'
             ? theme.objectFillNoC
-            : (isTx && hasT
+            : (category === 'sending_and_transmit'
                 ? theme.objectFillST
-                : (isTx
+                : (category === 'sending_only'
                     ? theme.objectFillS
-                    : theme.objectFillOther));
+                    : (category === 'other'
+                        ? theme.objectFillOther
+                        : (() => {
+                            // Backward compatible fallback (older exports)
+                            const flags = node.properties && node.properties.flags ? String(node.properties.flags) : '';
+                            const hasC = !flags ? true : flags.includes('C');
+                            const hasT = flags.includes('T');
+                            return !hasC
+                                ? theme.objectFillNoC
+                                : (isTx && hasT
+                                    ? theme.objectFillST
+                                    : (isTx
+                                        ? theme.objectFillS
+                                        : theme.objectFillOther));
+                        })())));
         const addressColor = theme.ink;
         const element = new joint.shapes.knx.GroupObject({
             id: node.id,
@@ -590,6 +603,102 @@ export function createNodeElement(node) {
     });
 }
 
+function buildGroupDeviceEdges(nodes) {
+    const deviceById = new Map(
+        nodes.filter((node) => node.kind === 'device').map((node) => [node.id, node])
+    );
+    const gaToDevices = new Map();
+    const showAllLinks = Boolean(state.uiSettings && state.uiSettings.showAllGroupLinks);
+
+    nodes.forEach((node) => {
+        if (node.kind !== 'groupobject') return;
+        const parent = node.parent_id;
+        const ga = node.properties && node.properties.group_address ? node.properties.group_address : '';
+        if (!parent || !ga) return;
+        if (!gaToDevices.has(ga)) {
+            gaToDevices.set(ga, new Set());
+        }
+        gaToDevices.get(ga).add(parent);
+    });
+
+    const edges = [];
+    const pairBuckets = new Map();
+    const sortDeviceIds = (a, b) => {
+        const aNode = deviceById.get(a) || { properties: { address: a }, label: a };
+        const bNode = deviceById.get(b) || { properties: { address: b }, label: b };
+        return compareIndividualAddress(aNode, bNode);
+    };
+
+    gaToDevices.forEach((devicesSet, ga) => {
+        const devices = Array.from(devicesSet).sort(sortDeviceIds);
+        if (devices.length < 2) return;
+        const safeGa = String(ga).replace(/[^a-zA-Z0-9_-]/g, '_');
+        if (showAllLinks) {
+            for (let i = 0; i < devices.length; i += 1) {
+                for (let j = i + 1; j < devices.length; j += 1) {
+                    const source = devices[i];
+                    const target = devices[j];
+                    const [left, right] = source < target ? [source, target] : [target, source];
+                    const pairKey = `${left}|${right}`;
+                    const edge = {
+                        id: `ga_${safeGa}_${left}_${right}_${edges.length}`,
+                        source,
+                        target,
+                        kind: 'links',
+                        label: ga,
+                        properties: {
+                            direction: 'undirected',
+                            group_address: ga,
+                            link_scope: 'group-device-ga',
+                            pair_key: pairKey
+                        }
+                    };
+                    edges.push(edge);
+                    if (!pairBuckets.has(pairKey)) {
+                        pairBuckets.set(pairKey, []);
+                    }
+                    pairBuckets.get(pairKey).push(edge);
+                }
+            }
+        } else {
+            const hub = devices[0];
+            for (let i = 1; i < devices.length; i += 1) {
+                const target = devices[i];
+                const [left, right] = hub < target ? [hub, target] : [target, hub];
+                const pairKey = `${left}|${right}`;
+                const edge = {
+                    id: `ga_${safeGa}_${left}_${right}_${edges.length}`,
+                    source: hub,
+                    target,
+                    kind: 'links',
+                    label: ga,
+                    properties: {
+                        direction: 'undirected',
+                        group_address: ga,
+                        link_scope: 'group-device-ga',
+                        pair_key: pairKey
+                    }
+                };
+                edges.push(edge);
+                if (!pairBuckets.has(pairKey)) {
+                    pairBuckets.set(pairKey, []);
+                }
+                pairBuckets.get(pairKey).push(edge);
+            }
+        }
+    });
+
+    pairBuckets.forEach((list) => {
+        list.sort((a, b) => String(a.properties.group_address).localeCompare(String(b.properties.group_address)));
+        list.forEach((edge, idx) => {
+            edge.properties.pair_index = String(idx);
+            edge.properties.pair_count = String(list.length);
+        });
+    });
+
+    return edges;
+}
+
 export function createLinkElement(edge) {
     const theme = readTheme();
     const direction = edge.properties && edge.properties.direction ? edge.properties.direction : 'directed';
@@ -611,25 +720,18 @@ export function createLinkElement(edge) {
 
     link.set('linkDirection', direction);
     link.set('groupAddress', groupAddress);
-
+    link.set('linkScope', edge.properties && edge.properties.link_scope ? edge.properties.link_scope : '');
     if (edge.label) {
-        link.labels([{
-            attrs: {
-                text: {
-                    text: edge.label,
-                    fontSize: 10,
-                    fontFamily: theme.fontMono,
-                    fill: theme.ink
-                },
-                rect: {
-                    fill: '#ffffff',
-                    stroke: theme.accent,
-                    strokeWidth: 0.5,
-                    rx: 3,
-                    ry: 3
-                }
-            }
-        }]);
+        link.set('labelText', edge.label);
+    }
+    if (edge.properties && edge.properties.pair_key) {
+        link.set('pairKey', edge.properties.pair_key);
+    }
+    if (edge.properties && edge.properties.pair_index != null) {
+        link.set('pairIndex', edge.properties.pair_index);
+    }
+    if (edge.properties && edge.properties.pair_count != null) {
+        link.set('pairCount', edge.properties.pair_count);
     }
 
     return link;

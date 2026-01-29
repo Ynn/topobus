@@ -51,6 +51,7 @@ body {
     --graph-object-fill-s-t: #dcfce7;
     --graph-object-fill-s: #dbeafe;
     --graph-object-fill-no-c: #e2e8f0;
+    --graph-object-fill-isolated: #f1f5f9;
     --graph-object-fill-other: #fef3c7;
     --object-border: #f59e0b;
     --line-fill: rgba(14, 165, 233, 0.12);
@@ -752,6 +753,61 @@ body {
     box-shadow: var(--shadow-sm);
     z-index: 4;
     backdrop-filter: blur(6px);
+}
+
+.graph-legend {
+    position: absolute;
+    top: 52px;
+    right: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: rgba(239, 241, 245, 0.95);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+    z-index: 5;
+    backdrop-filter: blur(6px);
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.theme-mocha .graph-legend {
+    background: rgba(30, 30, 46, 0.92);
+    color: var(--ctp-subtext1);
+}
+
+.graph-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1;
+}
+
+.graph-legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+}
+
+.graph-legend-swatch.st {
+    background: var(--graph-object-fill-s-t, var(--object-fill-tx));
+}
+
+.graph-legend-swatch.s {
+    background: var(--graph-object-fill-s, var(--object-fill));
+}
+
+.graph-legend-swatch.noc {
+    background: var(--graph-object-fill-no-c, var(--bg-dark));
+}
+
+.graph-legend-swatch.other {
+    background: var(--graph-object-fill-other, var(--object-fill));
 }
 
 .theme-mocha .graph-toolbar {
@@ -1514,6 +1570,45 @@ tr.table-spacer td {
     font-size: 12px;
 }
 
+.graph-selection {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: rgba(239, 241, 245, 0.9);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+    z-index: 4;
+    backdrop-filter: blur(6px);
+    font-size: 12px;
+    color: var(--text-primary);
+    max-width: 60%;
+}
+
+.graph-selection.hidden {
+    display: none;
+}
+
+.selection-banner__close {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 6px;
+}
+
+.selection-banner__close:hover {
+    color: var(--text-primary);
+    background: var(--bg-muted);
+}
+
 .update-toast__text {
     font-weight: 600;
 }
@@ -1724,6 +1819,18 @@ tr.table-spacer td {
     background: var(--bg-white);
     color: var(--text-primary);
     font-size: 12px;
+}
+
+.settings-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.settings-toggle input {
+    margin: 0;
 }
 
 .settings-grid {

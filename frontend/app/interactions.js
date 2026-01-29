@@ -3,6 +3,7 @@ import { getDom } from './dom.js';
 import { clamp } from './utils.js';
 import { scheduleMinimap } from './minimap.js';
 import { selectCell, clearSelection } from './selection.js';
+import { applySelectionStyles } from './graph/styles.js';
 import { readTheme } from './theme.js';
 import { rebuildSelectionIndex } from './graph/styles.js';
 import { stateManager } from './state_manager.js';
@@ -14,13 +15,32 @@ export function bindInteractions() {
     const { paper } = state;
     if (!paper) return;
 
+    const dom = getDom();
+
     paper.on('blank:pointerdown', (event) => {
-        clearSelection();
         startPan(event);
     });
 
+    paper.on('blank:pointerdblclick', () => {
+        clearSelection();
+    });
+
+    if (dom && dom.selectionBannerClose) {
+        dom.selectionBannerClose.addEventListener('click', () => {
+            clearSelection();
+        });
+    }
+
     paper.on('element:pointerclick', (elementView) => {
         selectCell(elementView.model);
+    });
+
+    paper.on('link:pointerclick', (linkView) => {
+        selectCell(linkView.model);
+    });
+
+    paper.on('link:pointerdown', (linkView) => {
+        selectCell(linkView.model);
     });
 
     paper.on('element:pointerdown', (elementView, event) => {
@@ -43,7 +63,6 @@ export function bindInteractions() {
         openGraphContextMenu(cell, event.clientX, event.clientY);
     });
 
-    const dom = getDom();
     if (state.wheelHandler && dom && dom.paper) {
         dom.paper.removeEventListener('wheel', state.wheelHandler);
     }
@@ -370,6 +389,13 @@ export function updateZoomLOD() {
     updateGroupSummaryLOD(sx);
     updateGroupHierarchySummaryLOD(sx);
     updateDeviceSummaryLOD(sx);
+
+    if (state.selectedCellId) {
+        const selected = state.graph ? state.graph.getCell(state.selectedCellId) : null;
+        if (selected) {
+            applySelectionStyles();
+        }
+    }
 }
 
 function updateGroupSummaryLOD(scale) {
@@ -545,26 +571,18 @@ function disableDeviceSummary() {
 
 function enableGroupSummary() {
     if (state.groupSummaryMode) return;
-    if (!state.graph || !state.currentGraphData) return;
+    if (!state.graph) return;
 
-    const graphData = state.currentGraphData;
-    const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : [];
-    const edges = Array.isArray(graphData.edges) ? graphData.edges : [];
-    const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const pairKeys = new Set();
-
-    edges.forEach((edge) => {
-        const sourceNode = nodeById.get(edge.source);
-        const targetNode = nodeById.get(edge.target);
-        if (!sourceNode || !targetNode) return;
-        if (sourceNode.kind !== 'groupobject' || targetNode.kind !== 'groupobject') return;
-        const sourceDevice = sourceNode.parent_id;
-        const targetDevice = targetNode.parent_id;
-        if (!sourceDevice || !targetDevice) return;
-        if (sourceDevice === targetDevice) return;
-        const [left, right] = sourceDevice < targetDevice
-            ? [sourceDevice, targetDevice]
-            : [targetDevice, sourceDevice];
+    state.graph.getLinks().forEach((link) => {
+        if (link.get('isAggregate')) return;
+        if (link.get('linkScope') !== 'group-device-ga') return;
+        const sourceId = link.get('source') && link.get('source').id;
+        const targetId = link.get('target') && link.get('target').id;
+        if (!sourceId || !targetId) return;
+        const [left, right] = sourceId < targetId
+            ? [sourceId, targetId]
+            : [targetId, sourceId];
         pairKeys.add(`${left}|${right}`);
     });
 

@@ -198,10 +198,17 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
         columnHeights[col] += layout.height + settings.columnGap;
     });
 
-    if (viewType === 'group' && state.currentGraphData && Array.isArray(state.currentGraphData.edges)) {
+    if (viewType === 'group') {
         const nodeById = new Map(nodes.map(node => [node.id, node]));
         const deviceById = new Map(deviceNodes.map(node => [node.id, node]));
-        const deviceEdges = buildDeviceEdges(state.currentGraphData.edges, nodeById, deviceById);
+        const rawEdges = Array.isArray(options.edgesForLayout)
+            ? options.edgesForLayout
+            : (state.currentGraphData && Array.isArray(state.currentGraphData.edges)
+                ? state.currentGraphData.edges
+                : []);
+        const deviceEdges = Array.isArray(options.edgesForLayout)
+            ? rawEdges
+            : buildDeviceEdges(rawEdges, nodeById, deviceById);
         if (deviceEdges.length) {
             applyComponentLayout(layouts, deviceEdges, width, settings);
         }
@@ -209,15 +216,26 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
 
     applyGroupLayouts(layouts, elementsById, settings, { viewType });
 
-    const edgeCount = state.currentGraphData && Array.isArray(state.currentGraphData.edges)
-        ? state.currentGraphData.edges.length
-        : 0;
+    const edgeCount = (viewType === 'group' && Array.isArray(options.edgesForLayout))
+        ? options.edgesForLayout.length
+        : (state.currentGraphData && Array.isArray(state.currentGraphData.edges)
+            ? state.currentGraphData.edges.length
+            : 0);
     const elkAllowedForSize = viewType !== 'device' || (
         deviceNodes.length <= PERFORMANCE_THRESHOLDS.ELK_LAYOUT.MAX_DEVICES
         && edgeCount <= PERFORMANCE_THRESHOLDS.ELK_LAYOUT.MAX_EDGES
     );
     if (shouldUseElk && elkAllowedForSize && deviceNodes.length > 1) {
-        scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings, viewType, width);
+        scheduleElkGroupLayout(
+            layouts,
+            nodes,
+            deviceNodes,
+            elementsById,
+            settings,
+            viewType,
+            width,
+            options.edgesForLayout
+        );
     }
 }
 
@@ -413,17 +431,21 @@ function getElkInstance() {
     return cachedElk;
 }
 
-function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings, viewType, availableWidth) {
+function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings, viewType, availableWidth, edgesForLayout) {
     const elk = getElkInstance();
     if (!elk) return;
     const graphData = state.currentGraphData;
-    if (!graphData || !graphData.edges || !graphData.edges.length) return;
+    if ((!edgesForLayout || !edgesForLayout.length) && (!graphData || !graphData.edges || !graphData.edges.length)) {
+        return;
+    }
 
     const elkConfig = resolveElkAlgorithm(state.elkSettings && state.elkSettings.algorithm);
     const algorithm = elkConfig.id;
     const nodeById = new Map(nodes.map(node => [node.id, node]));
     const deviceById = new Map(deviceNodes.map(node => [node.id, node]));
-    const edges = buildDeviceEdges(graphData.edges, nodeById, deviceById);
+    const edges = Array.isArray(edgesForLayout) && edgesForLayout.length
+        ? edgesForLayout
+        : buildDeviceEdges(graphData.edges, nodeById, deviceById);
     if (!edges.length) return;
 
     const token = (state.elkLayoutToken || 0) + 1;
@@ -836,6 +858,10 @@ function buildElkOptions(settings) {
 export function alignGroupLinks(cell) {
     const { graph } = state;
     if (!graph) return;
+    const paper = state.paper;
+    if (paper && paper.el && paper.el.classList && paper.el.classList.contains('is-zooming')) {
+        return;
+    }
     let links = null;
     if (cell) {
         const linkSet = new Set(graph.getConnectedLinks(cell));
@@ -861,19 +887,78 @@ export function alignGroupLinks(cell) {
         const sourceCenterY = sourceBox.y + sourceBox.height / 2;
         const targetCenterX = targetBox.x + targetBox.width / 2;
         const targetCenterY = targetBox.y + targetBox.height / 2;
-        const sourceKind = sourceCell.get('kind');
-        const targetKind = targetCell.get('kind');
-        const objectEndpoint = sourceKind === 'groupobject' ||
-            targetKind === 'groupobject' ||
-            sourceKind === 'composite-object' ||
-            targetKind === 'composite-object';
-        if (targetCenterX >= sourceCenterX) {
-            link.source({ id: sourceId, anchor: { name: 'right' } });
-            link.target({ id: targetId, anchor: { name: 'left' } });
-        } else {
-            link.source({ id: sourceId, anchor: { name: 'left' } });
-            link.target({ id: targetId, anchor: { name: 'right' } });
+        if (link.get('linkScope') !== 'group-device-ga') {
+            if (targetCenterX >= sourceCenterX) {
+                link.source({ id: sourceId, anchor: { name: 'right' } });
+                link.target({ id: targetId, anchor: { name: 'left' } });
+            } else {
+                link.source({ id: sourceId, anchor: { name: 'left' } });
+                link.target({ id: targetId, anchor: { name: 'right' } });
+            }
         }
+    });
+
+    // Offset parallel device↔device links for different group addresses.
+    const parallel = new Map();
+    links.forEach((link) => {
+        if (link.get('linkScope') !== 'group-device-ga') return;
+        const sourceId = link.get('source') && link.get('source').id;
+        const targetId = link.get('target') && link.get('target').id;
+        if (!sourceId || !targetId) return;
+        const key = link.get('pairKey') || (sourceId < targetId
+            ? `${sourceId}|${targetId}`
+            : `${targetId}|${sourceId}`);
+        if (!parallel.has(key)) parallel.set(key, []);
+        parallel.get(key).push(link);
+    });
+
+    parallel.forEach((list) => {
+        if (!list.length) return;
+        list.sort((a, b) => {
+            const aGa = a.get('groupAddress') || '';
+            const bGa = b.get('groupAddress') || '';
+            return String(aGa).localeCompare(String(bGa));
+        });
+        if (list.length === 1) {
+            const link = list[0];
+            const sourceId = link.get('source') && link.get('source').id;
+            const targetId = link.get('target') && link.get('target').id;
+            if (sourceId && targetId) {
+                link.source({ id: sourceId, anchor: { name: 'center' } });
+                link.target({ id: targetId, anchor: { name: 'center' } });
+                link.vertices([]);
+            }
+            return;
+        }
+
+        const first = list[0];
+        const sourceId = first.get('source') && first.get('source').id;
+        const targetId = first.get('target') && first.get('target').id;
+        if (!sourceId || !targetId) return;
+        const sourceCell = graph.getCell(sourceId);
+        const targetCell = graph.getCell(targetId);
+        if (!sourceCell || !targetCell) return;
+        const sourceBox = sourceCell.getBBox();
+        const targetBox = targetCell.getBBox();
+        const sx = sourceBox.x + sourceBox.width / 2;
+        const sy = sourceBox.y + sourceBox.height / 2;
+        const tx = targetBox.x + targetBox.width / 2;
+        const ty = targetBox.y + targetBox.height / 2;
+        const dx = tx - sx;
+        const dy = ty - sy;
+        const len = Math.hypot(dx, dy);
+        if (len < 1) return;
+        const nx = -dy / len;
+        const ny = dx / len;
+        const center = (list.length - 1) / 2;
+        list.forEach((link, idx) => {
+            const offset = (idx - center) * 12;
+            const dx = Math.round(nx * offset);
+            const dy = Math.round(ny * offset);
+            link.source({ id: sourceId, anchor: { name: 'center', args: { dx, dy } } });
+            link.target({ id: targetId, anchor: { name: 'center', args: { dx, dy } } });
+            link.vertices([]);
+        });
     });
 }
 
@@ -1189,7 +1274,8 @@ export function updateGroupObjectText(objectEl, width, settings) {
     const theme = readTheme();
     const name = objectEl.get('fullName') || '';
     const address = objectEl.get('groupAddress') || '';
-    const hideTitle = objectEl.get && objectEl.get('hideTitle') === true;
+    const forceTitle = objectEl.get && objectEl.get('forceTitle') === true;
+    const hideTitle = !forceTitle && objectEl.get && objectEl.get('hideTitle') === true;
     const leftPad = Math.max(8, Math.round(settings.padding * 0.7));
     const rightPad = leftPad;
 

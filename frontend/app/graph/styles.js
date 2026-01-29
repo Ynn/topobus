@@ -1,9 +1,12 @@
 import { state } from '../state.js';
-import { readTheme } from '../theme.js';
+import { readTheme, getLayoutSettings } from '../theme.js';
+import { updateGroupObjectText } from './layout.js';
 import { stateManager } from '../state_manager.js';
 
 const highlightedElements = new Set();
 const highlightedLinks = new Set();
+const dimmedElements = new Set();
+const highlightedFrames = new Set();
 
 export function zForElement(kind, viewType) {
     if (viewType === 'group' || viewType === 'device') {
@@ -50,9 +53,49 @@ export function applyLinkStyle(link, theme, highlighted) {
     link.attr('line/strokeWidth', strokeWidth);
     link.attr('line/strokeDasharray', dash);
     link.attr('line/strokeLinecap', (strongHighlight || summaryHighlight) ? 'round' : 'butt');
-    link.attr('line/targetMarker', isAggregate ? { type: 'none' } : { type: 'path', d: '' });
+    if (link.get('linkScope') === 'group-device-ga') {
+        const radius = highlighted ? 4 : 3;
+        link.attr('line/sourceMarker', { type: 'circle', r: radius });
+        link.attr('line/targetMarker', { type: 'circle', r: radius });
+    } else {
+        link.attr('line/sourceMarker', { type: 'none' });
+        link.attr('line/targetMarker', isAggregate ? { type: 'none' } : { type: 'path', d: '' });
+    }
     link.attr('line/opacity', summaryHighlight ? 1 : (strongHighlight ? 1 : (highlighted ? 0.9 : 0.65)));
     link.attr('line/visibility', visible ? 'visible' : 'hidden');
+
+    const labelText = link.get('labelText') || link.get('groupAddress') || '';
+    const showLabel = Boolean(labelText) && highlighted && state.currentView === 'group';
+    if (showLabel) {
+        const idx = Number(link.get('pairIndex') || 0);
+        const count = Number(link.get('pairCount') || 1);
+        const center = (count - 1) / 2;
+        const labelOffset = (idx - center) * 10;
+        const existing = link.labels();
+        if (!existing || !existing.length || existing[0]?.attrs?.text?.text !== labelText) {
+            link.labels([{
+                position: 0.5,
+                attrs: {
+                    text: {
+                        text: labelText,
+                        fontSize: 10,
+                        fontFamily: theme.fontMono,
+                        fill: theme.ink,
+                        dy: -8 + labelOffset
+                    },
+                    rect: {
+                        fill: '#ffffff',
+                        stroke: theme.accent,
+                        strokeWidth: 0.5,
+                        rx: 3,
+                        ry: 3
+                    }
+                }
+            }]);
+        }
+    } else if (link.labels().length) {
+        link.labels([]);
+    }
 }
 
 export function applyElementStyle(element, theme, selected) {
@@ -72,23 +115,44 @@ export function applyElementStyle(element, theme, selected) {
     }
 
     if (kind === 'groupobject' || kind === 'composite-object') {
-        const isTx = Boolean(element.get('isTransmitter'));
         const props = element.get('nodeProps') || {};
-        const flags = props.flags != null ? String(props.flags) : '';
-        const hasC = !flags ? true : flags.includes('C');
-        const hasT = flags.includes('T');
-        const fill = !hasC
+        const category = props.semantic_category != null ? String(props.semantic_category) : '';
+        const peerCount = Number(element.get('gaPeerCount') || 0);
+        const fill = category === 'no_communication'
             ? theme.objectFillNoC
-            : (isTx && hasT
+            : (category === 'sending_and_transmit'
                 ? theme.objectFillST
-                : (isTx
+                : (category === 'sending_only'
                     ? theme.objectFillS
-                    : theme.objectFillOther));
-        const addressColor = theme.ink;
-        element.attr('body/fill', fill);
+                    : (category === 'other'
+                        ? theme.objectFillOther
+                        : (() => {
+                            // Backward compatible fallback (older exports)
+                            const isTx = Boolean(element.get('isTransmitter'));
+                            const flags = props.flags != null ? String(props.flags) : '';
+                            const hasC = !flags ? true : flags.includes('C');
+                            const hasT = flags.includes('T');
+                            return !hasC
+                                ? theme.objectFillNoC
+                                : (isTx && hasT
+                                    ? theme.objectFillST
+                                    : (isTx
+                                        ? theme.objectFillS
+                                        : theme.objectFillOther));
+                        })())));
+        const finalFill = peerCount <= 1 ? (theme.objectFillIsolated || theme.objectFillNoC) : fill;
+        const addressColor = selected ? (theme.accentStrong || theme.accent) : theme.ink;
+        const nameColor = selected ? (theme.accentStrong || theme.accent) : theme.ink;
+        element.attr('body/fill', finalFill);
         element.attr('body/stroke', selected ? theme.accent : theme.objectBorder);
-        element.attr('body/strokeWidth', selected ? 2 : 1.5);
+        element.attr('body/strokeWidth', selected ? 2.4 : 1.5);
         element.attr('address/fill', addressColor);
+        element.attr('name/fill', nameColor);
+        element.attr('name/fontWeight', selected ? 700 : 600);
+        element.attr('address/fontWeight', selected ? 800 : 700);
+        element.attr('body/opacity', 1);
+        element.attr('name/opacity', 1);
+        element.attr('address/opacity', 1);
         return;
     }
 
@@ -164,10 +228,23 @@ export function applySelectionStyles() {
 
     const idx = state.selectionIndex || {};
     const kind = selected.get('kind');
-    const markElement = (element) => {
+    const highlightRefs = new Set();
+    const markElement = (element, options = {}) => {
         if (!element) return;
         applyElementStyle(element, theme, true);
         highlightedElements.add(element);
+        const kind = element.get('kind');
+        if (kind === 'groupobject' || kind === 'composite-object') {
+            const props = element.get('nodeProps') || {};
+            const ref = props.com_object_ref_id ? String(props.com_object_ref_id) : '';
+            if (ref) highlightRefs.add(ref);
+            if (!options.suppressTitle && element.get('hideTitle')) {
+                element.set('forceTitle', true);
+                const size = element.size ? element.size() : null;
+                const width = size ? size.width : 0;
+                updateGroupObjectText(element, width, getLayoutSettings());
+            }
+        }
     };
     const markLink = (link) => {
         if (!link) return;
@@ -193,23 +270,38 @@ export function applySelectionStyles() {
         return;
     }
 
-    if (kind === 'groupobject' || kind === 'composite-object') {
+    if (selected.isLink && selected.isLink() && state.groupSummaryMode) {
         const ga = selected.get('groupAddress');
-        const objects = idx.groupObjectsByGa ? idx.groupObjectsByGa.get(ga) : null;
-        if (objects) {
-            objects.forEach((obj) => markElement(obj));
-        } else {
-            markElement(selected);
-        }
         const deviceIds = idx.devicesByGa ? idx.devicesByGa.get(ga) : null;
         if (deviceIds) {
             deviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
         }
-        const links = idx.linksByGa ? idx.linksByGa.get(ga) : null;
-        if (links) {
-            links.forEach((link) => markLink(link));
+        if (idx.aggregateLinks && deviceIds) {
+            idx.aggregateLinks.forEach((link) => {
+                const sourceId = link.get('source') && link.get('source').id;
+                const targetId = link.get('target') && link.get('target').id;
+                if (deviceIds.has(sourceId) && deviceIds.has(targetId)) {
+                    markLink(link);
+                }
+            });
         }
         return;
+    }
+
+    if (kind === 'groupobject' || kind === 'composite-object') {
+        const ga = selected.get('groupAddress');
+        highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink);
+        highlightFramesByRefs(graph, theme, highlightRefs);
+        return;
+    }
+
+    if (selected.isLink && selected.isLink()) {
+        const ga = selected.get('groupAddress');
+        if (ga) {
+            highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink);
+            highlightFramesByRefs(graph, theme, highlightRefs);
+            return;
+        }
     }
 
     if ((kind === 'device' || kind === 'composite-device') && state.groupSummaryMode) {
@@ -257,15 +349,33 @@ export function applySelectionStyles() {
         markElement(selected);
         const childIds = idx.childrenByDevice ? idx.childrenByDevice.get(selected.id) : null;
         if (childIds) {
+            const gaSet = new Set();
             childIds.forEach((childId) => {
                 const child = graph.getCell(childId);
-                if (child) markElement(child);
+                if (!child) return;
+                const peerCount = Number(child.get('gaPeerCount') || 0);
+                if (peerCount > 1) {
+                    markElement(child, { suppressTitle: true });
+                    const ga = child.get('groupAddress');
+                    if (ga) gaSet.add(ga);
+                } else {
+                    applyDimStyle(child, theme);
+                }
                 const links = idx.linksByEndpoint ? idx.linksByEndpoint.get(childId) : null;
                 if (links) {
                     links.forEach((link) => markLink(link));
                 }
             });
+            if (state.currentView === 'group' && gaSet.size) {
+                gaSet.forEach((ga) => {
+                    const links = idx.linksByGa ? idx.linksByGa.get(ga) : null;
+                    if (links) {
+                        links.forEach((link) => markLink(link));
+                    }
+                });
+            }
         }
+        highlightFramesByRefs(graph, theme, highlightRefs);
         return;
     }
 
@@ -289,6 +399,7 @@ export function applySelectionStyles() {
     }
 
     markElement(selected);
+    highlightFramesByRefs(graph, theme, highlightRefs);
 }
 
 function resetHighlights(theme) {
@@ -296,6 +407,28 @@ function resetHighlights(theme) {
     highlightedLinks.forEach((link) => applyLinkStyle(link, theme, false));
     highlightedElements.clear();
     highlightedLinks.clear();
+    dimmedElements.forEach((element) => applyElementStyle(element, theme, false));
+    dimmedElements.clear();
+    highlightedFrames.forEach((frame) => {
+        frame.attr('body/stroke', theme.muted);
+        frame.attr('body/strokeWidth', 1.2);
+        frame.attr('body/fill', 'rgba(15, 23, 42, 0.12)');
+    });
+    highlightedFrames.clear();
+
+    // Clear forced titles after selection is reset.
+    if (state.graph) {
+        state.graph.getElements().forEach((el) => {
+            const kind = el.get('kind');
+            if (kind !== 'groupobject' && kind !== 'composite-object') return;
+            if (el.get('forceTitle')) {
+                el.set('forceTitle', false);
+                const size = el.size ? el.size() : null;
+                const width = size ? size.width : 0;
+                updateGroupObjectText(el, width, getLayoutSettings());
+            }
+        });
+    }
 }
 
 function walkAdjacency(startId, adjacency) {
@@ -341,6 +474,67 @@ function addToMapSet(map, key, value) {
     map.get(key).add(value);
 }
 
+function applyDimStyle(element, theme) {
+    if (!element) return;
+    const kind = element.get('kind');
+    if (kind !== 'groupobject' && kind !== 'composite-object') return;
+    element.attr('body/opacity', 0.22);
+    element.attr('name/opacity', 0.35);
+    element.attr('address/opacity', 0.35);
+    element.attr('name/fill', theme.muted);
+    element.attr('address/fill', theme.muted);
+    element.attr('body/stroke', theme.border);
+    element.attr('body/strokeWidth', 1.2);
+    dimmedElements.add(element);
+}
+
+function highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink) {
+    if (!ga) {
+        markElement(selected);
+        return;
+    }
+    const selectedProps = selected && selected.get ? (selected.get('nodeProps') || {}) : {};
+    const selectedRef = selectedProps.com_object_ref_id ? String(selectedProps.com_object_ref_id) : '';
+    const objects = idx.groupObjectsByGa ? idx.groupObjectsByGa.get(ga) : null;
+    if (objects) {
+        objects.forEach((obj) => markElement(obj));
+    } else {
+        markElement(selected);
+    }
+    const deviceIds = idx.devicesByGa ? idx.devicesByGa.get(ga) : null;
+    if (deviceIds) {
+        deviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+    }
+    const links = idx.linksByGa ? idx.linksByGa.get(ga) : null;
+    if (links) {
+        links.forEach((link) => markLink(link));
+    }
+
+    if (state.currentView === 'group' && !state.groupSummaryMode && idx.allGroupObjects) {
+        idx.allGroupObjects.forEach((obj) => {
+            if (!obj) return;
+            const objGa = obj.get('groupAddress');
+            if (objGa === ga) return;
+            applyDimStyle(obj, theme);
+        });
+    }
+}
+
+function highlightFramesByRefs(graph, theme, refs) {
+    if (!graph || !refs || !refs.size) return;
+    graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'groupobject-frame') return;
+        const props = el.get('nodeProps') || {};
+        const ref = props.com_object_ref_id ? String(props.com_object_ref_id) : '';
+        if (ref && refs.has(ref)) {
+            el.attr('body/stroke', theme.accent);
+            el.attr('body/strokeWidth', 2.2);
+            el.attr('body/fill', 'rgba(15, 23, 42, 0.2)');
+            highlightedFrames.add(el);
+        }
+    });
+}
+
 export function rebuildSelectionIndex() {
     const { graph } = state;
     highlightedElements.clear();
@@ -358,13 +552,15 @@ export function rebuildSelectionIndex() {
         deviceAdjacency: new Map(),
         aggregateAdjacency: new Map(),
         aggregateLinks: new Set(),
-        childTree: new Map()
+        childTree: new Map(),
+        allGroupObjects: new Set()
     };
 
     const elements = graph.getElements();
     elements.forEach((el) => {
         const kind = el.get('kind');
         if (kind === 'groupobject' || kind === 'composite-object') {
+            idx.allGroupObjects.add(el);
             const ga = el.get('groupAddress');
             if (ga) {
                 addToMapSet(idx.groupObjectsByGa, ga, el);
@@ -406,6 +602,15 @@ export function rebuildSelectionIndex() {
             addToMapSet(idx.linksByGa, ga, link);
         }
     });
+
+    if (idx.allGroupObjects.size) {
+        idx.allGroupObjects.forEach((obj) => {
+            const ga = obj.get('groupAddress');
+            const devices = ga ? idx.devicesByGa.get(ga) : null;
+            const count = devices ? devices.size : 0;
+            obj.set('gaPeerCount', count);
+        });
+    }
 
     stateManager.setState('selectionIndex', idx);
 }

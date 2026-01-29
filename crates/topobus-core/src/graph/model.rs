@@ -333,8 +333,7 @@ pub fn generate_topology_graph(project: &KnxProjectData) -> GraphModel {
 /// Generate group address graph from KNX project data
 pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
     let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-    let mut ga_links: HashMap<String, Vec<GroupObjectLink>> = HashMap::new();
+    let edges = Vec::new();
 
     // Create device nodes
     for device in &project.devices {
@@ -409,6 +408,25 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
                 link.ets_receiving.to_string(),
             );
 
+            // Precomputed semantic category for GroupObject coloring in the frontend.
+            // Rules (matching UI semantics):
+            // - no_communication: KNX 'C' flag disabled => always grey, even if ETS says sending.
+            // - sending_and_transmit: ETS sending + KNX 'T' transmit (only if communication is enabled)
+            // - sending_only: ETS sending (only if communication is enabled)
+            // - other: everything else
+            let communication_enabled = link.flags.as_ref().map(|f| f.communication).unwrap_or(true);
+            let transmit_enabled = link.flags.as_ref().map(|f| f.transmit).unwrap_or(false);
+            let semantic_category = if !communication_enabled {
+                "no_communication"
+            } else if link.ets_sending && transmit_enabled {
+                "sending_and_transmit"
+            } else if link.ets_sending {
+                "sending_only"
+            } else {
+                "other"
+            };
+            obj_properties.insert("semantic_category".to_string(), semantic_category.to_string());
+
             if let Some(dpt) = &link.datapoint_type {
                 obj_properties.insert("datapoint_type".to_string(), dpt.clone());
             }
@@ -466,15 +484,6 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
                 properties: obj_properties,
             });
 
-            ga_links
-                .entry(link.group_address.clone())
-                .or_default()
-                .push(GroupObjectLink {
-                    id: obj_id,
-                    device_id: device_id.clone(),
-                    ets_sending: link.ets_sending,
-                    ets_receiving: link.ets_receiving,
-                });
         }
     }
 
@@ -524,150 +533,5 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
         });
     }
 
-    for (ga_address, mut objects) in ga_links {
-        if objects.len() < 2 {
-            continue;
-        }
-        objects.sort_by(|a, b| a.id.cmp(&b.id));
-
-        let senders: Vec<&GroupObjectLink> = objects.iter().filter(|obj| obj.ets_sending).collect();
-        let receivers: Vec<&GroupObjectLink> =
-            objects.iter().filter(|obj| obj.ets_receiving).collect();
-
-        let safe_ga = ga_address
-            .replace('/', "_")
-            .replace('.', "_")
-            .replace(' ', "_");
-
-        let mut connected: HashMap<String, bool> = HashMap::new();
-        for obj in &objects {
-            connected.insert(obj.id.clone(), false);
-        }
-
-        // Prefer explicit directed edges from every ETS sender to every ETS receiver.
-        // Only create inter-device edges (frontend hides intra-device links).
-        if !senders.is_empty() && !receivers.is_empty() {
-            for source in &senders {
-                for target in &receivers {
-                    if source.id == target.id {
-                        continue;
-                    }
-                    if source.device_id == target.device_id {
-                        continue;
-                    }
-                    let mut properties = HashMap::new();
-                    properties.insert("direction".to_string(), "directed".to_string());
-                    properties.insert("group_address".to_string(), ga_address.clone());
-
-                    edges.push(Edge {
-                        id: format!("ga_{}_{}_to_{}", safe_ga, source.id, target.id),
-                        source: source.id.clone(),
-                        target: target.id.clone(),
-                        kind: EdgeKind::Links,
-                        label: None,
-                        properties,
-                    });
-                    if let Some(entry) = connected.get_mut(&source.id) {
-                        *entry = true;
-                    }
-                    if let Some(entry) = connected.get_mut(&target.id) {
-                        *entry = true;
-                    }
-                }
-            }
-        }
-
-        // Ensure every object that belongs to a device with at least one other device on this GA
-        // has at least one inter-device link, even if ETS flags are incomplete.
-        let mut by_device: HashMap<String, Vec<&GroupObjectLink>> = HashMap::new();
-        for obj in &objects {
-            by_device
-                .entry(obj.device_id.clone())
-                .or_default()
-                .push(obj);
-        }
-
-        if by_device.len() >= 2 {
-            let mut devices: Vec<String> = by_device.keys().cloned().collect();
-            devices.sort();
-
-            // Pick a stable target per device: prefer a receiver, then a sender, then first.
-            let pick_anchor = |dev: &str| -> Option<&GroupObjectLink> {
-                let list = by_device.get(dev)?;
-                list.iter().find(|o| o.ets_receiving).copied()
-                    .or_else(|| list.iter().find(|o| o.ets_sending).copied())
-                    .or_else(|| list.first().copied())
-            };
-
-            for obj in &objects {
-                let is_connected = connected.get(&obj.id).copied().unwrap_or(false);
-                if is_connected {
-                    continue;
-                }
-
-                // Connect to an anchor in a different device.
-                let mut other_anchor: Option<&GroupObjectLink> = None;
-                for dev in &devices {
-                    if dev == &obj.device_id {
-                        continue;
-                    }
-                    other_anchor = pick_anchor(dev);
-                    if other_anchor.is_some() {
-                        break;
-                    }
-                }
-                let Some(anchor) = other_anchor else {
-                    continue;
-                };
-
-                let mut properties = HashMap::new();
-                properties.insert("direction".to_string(), "undirected".to_string());
-                properties.insert("group_address".to_string(), ga_address.clone());
-
-                edges.push(Edge {
-                    id: format!("ga_{}_fallback_{}_to_{}", safe_ga, obj.id, anchor.id),
-                    source: obj.id.clone(),
-                    target: anchor.id.clone(),
-                    kind: EdgeKind::Links,
-                    label: None,
-                    properties,
-                });
-
-                if let Some(entry) = connected.get_mut(&obj.id) {
-                    *entry = true;
-                }
-                if let Some(entry) = connected.get_mut(&anchor.id) {
-                    *entry = true;
-                }
-            }
-        } else if edges.is_empty() {
-            // Single-device fallback: create a minimal chain (will be hidden by frontend anyway).
-            for pair in objects.windows(2) {
-                let a = &pair[0];
-                let b = &pair[1];
-                let mut properties = HashMap::new();
-                properties.insert("direction".to_string(), "undirected".to_string());
-                properties.insert("group_address".to_string(), ga_address.clone());
-
-                edges.push(Edge {
-                    id: format!("ga_{}_single_{}_to_{}", safe_ga, a.id, b.id),
-                    source: a.id.clone(),
-                    target: b.id.clone(),
-                    kind: EdgeKind::Links,
-                    label: None,
-                    properties,
-                });
-            }
-        }
-    }
-
     GraphModel { nodes, edges }
-}
-
-#[derive(Clone)]
-struct GroupObjectLink {
-    id: String,
-    device_id: String,
-    ets_sending: bool,
-    ets_receiving: bool,
 }

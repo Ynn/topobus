@@ -12,6 +12,7 @@ let activeSettingsTab = 'theme';
 
 const DEFAULT_SETTINGS = {
     theme: 'latte',
+    showAllGroupLinks: false,
     elkPreset: 'balanced',
     elk: {
         algorithm: 'layered',
@@ -163,6 +164,11 @@ function bindSettingsControls(dom) {
         dom.settingsTheme.addEventListener('change', (event) => {
             const value = event.target.value;
             updateDraft({ theme: value });
+        });
+    }
+    if (dom.settingsShowAllGaLinks) {
+        dom.settingsShowAllGaLinks.addEventListener('change', (event) => {
+            updateDraft({ showAllGroupLinks: Boolean(event.target.checked) });
         });
     }
     if (dom.settingsPreset) {
@@ -424,6 +430,9 @@ function syncSettingsUI(settings) {
     const dom = getDom();
     if (!dom) return;
     if (dom.settingsTheme) dom.settingsTheme.value = settings.theme || 'latte';
+    if (dom.settingsShowAllGaLinks) {
+        dom.settingsShowAllGaLinks.checked = Boolean(settings.showAllGroupLinks);
+    }
     if (dom.settingsPreset) dom.settingsPreset.value = settings.elkPreset || 'custom';
     if (dom.settingsAlgorithm) dom.settingsAlgorithm.value = settings.elk.algorithm || 'layered';
     if (dom.settingsDirection) dom.settingsDirection.value = settings.elk.direction || 'RIGHT';

@@ -53,6 +53,48 @@ if ('serviceWorker' in navigator) {
             hideToast();
         };
 
+        const isSafeToReload = () => {
+            const title = document.getElementById('project-title');
+            const text = title ? String(title.textContent || '').trim() : '';
+            return text === '' || text === 'No Project Loaded';
+        };
+
+        const forceApplyUpdate = async () => {
+            userRequestedReload = true;
+            try {
+                const pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
+                if (pending) {
+                    localStorage.setItem(STORAGE_SEEN_BUILD_ID, pending);
+                    localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
+                }
+            } catch {}
+
+            try {
+                if (waitingWorker) {
+                    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+                    fallbackReloadTimer = setTimeout(() => window.location.reload(), 4000);
+                    return;
+                }
+
+                const registration = swRegistration || (await navigator.serviceWorker.getRegistration());
+                if (!registration) {
+                    window.location.reload();
+                    return;
+                }
+
+                await registration.update().catch(() => {});
+                if (registration.waiting) {
+                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    fallbackReloadTimer = setTimeout(() => window.location.reload(), 4000);
+                    return;
+                }
+
+                window.location.reload();
+            } catch {
+                window.location.reload();
+            }
+        };
+
         navigator.serviceWorker.addEventListener('controllerchange', () => {
             // Only reload when the user explicitly accepted the update.
             if (!userRequestedReload) return;
@@ -173,8 +215,25 @@ if ('serviceWorker' in navigator) {
             });
         }
 
-        navigator.serviceWorker
-            .register('./sw.js', { updateViaCache: 'none' })
+        const registerServiceWorker = async () => {
+            let buildId = null;
+            try {
+                const url = new URL('./build-id.txt', window.location.href);
+                const res = await fetch(url.toString(), {
+                    cache: 'no-store',
+                    credentials: 'same-origin'
+                });
+                if (res.ok) {
+                    const text = (await res.text()).trim();
+                    if (text) buildId = text;
+                }
+            } catch {}
+
+            const swUrl = buildId ? `./sw.js?build=${encodeURIComponent(buildId)}` : './sw.js';
+            return navigator.serviceWorker.register(swUrl, { updateViaCache: 'none' });
+        };
+
+        registerServiceWorker()
             .then((registration) => {
                 swRegistration = registration;
                 // Proactively check for updates on load.
@@ -184,9 +243,14 @@ if ('serviceWorker' in navigator) {
                     if (!worker) return;
                     worker.addEventListener('statechange', () => {
                         // When a new version is installed, show the refresh button.
-                        if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+                    if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+                        if (isSafeToReload()) {
+                            waitingWorker = registration.waiting || worker;
+                            forceApplyUpdate();
+                        } else {
                             showUpdateAvailable(registration.waiting || worker);
                         }
+                    }
 
                         // If the update becomes redundant or activated without reload intent, hide.
                         if (worker.state === 'redundant') {
@@ -256,7 +320,11 @@ if ('serviceWorker' in navigator) {
                             } catch {}
                             // Trigger an update check; the SW should update because sw.generated.js changed.
                             registration.update().catch(() => {});
-                            showUpdateAvailable(registration.waiting || null);
+                            if (isSafeToReload()) {
+                                forceApplyUpdate();
+                            } else {
+                                showUpdateAvailable(registration.waiting || null);
+                            }
                         }
                     } catch {
                         // Offline or blocked; ignore.

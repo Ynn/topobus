@@ -41,12 +41,14 @@
             <p>or <label for="file-input" class="file-label">browse your computer</label></p>
             <input type="file" id="file-input" accept=".knxproj" style="display: none;">
             <div class="password-row hidden" id="password-row">
-                <label for="password-input">Project password (optional)</label>
-                <div class="password-actions">
-                    <input type="password" id="password-input" placeholder="Leave blank if none">
-                    <button type="button" id="password-submit">Retry</button>
-                </div>
-                <div class="password-hint" id="password-hint"></div>
+                <form id="password-form" novalidate>
+                    <label for="password-input">Project password (Decryption is local; no password is sent over the network.)</label>
+                    <div class="password-actions">
+                        <input type="password" id="password-input" placeholder="Leave blank if none" autocomplete="new-password">
+                        <button type="button" id="password-submit">Retry</button>
+                    </div>
+                    <div class="password-hint" id="password-hint"></div>
+                </form>
             </div>
         </div>
     </div>
@@ -144,6 +146,17 @@
                             <button class="toolbar-btn" id="btn-relayout">🔄 Layout</button>
                             <button class="toolbar-btn" id="btn-export-svg">⬇ SVG</button>
                             <button class="toolbar-btn" id="btn-graph-fullscreen">⛶ Full Screen</button>
+                            <button class="toolbar-btn" id="btn-graph-legend" title="Toggle legend">Legend</button>
+                        </div>
+                        <div class="graph-selection hidden" id="selection-banner" role="status" aria-live="polite">
+                            <span id="selection-banner-text"></span>
+                            <button type="button" class="selection-banner__close" id="selection-banner-close" aria-label="Clear selection">✕</button>
+                        </div>
+                        <div class="graph-legend hidden" id="graph-legend" title="Legend: group object semantic colors">
+                            <span class="graph-legend-item"><span class="graph-legend-swatch st"></span>S+T</span>
+                            <span class="graph-legend-item"><span class="graph-legend-swatch s"></span>S</span>
+                            <span class="graph-legend-item"><span class="graph-legend-swatch noc"></span>not C</span>
+                            <span class="graph-legend-item"><span class="graph-legend-swatch other"></span>other</span>
                         </div>
                         <!-- Loading Indicator (Graph View) -->
                         <div id="loading" class="hidden">
@@ -207,6 +220,12 @@
                             <option value="latte">Latte</option>
                             <option value="mocha">Mocha</option>
                         </select>
+                    </div>
+                    <div class="settings-section">
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="settings-show-all-ga-links" />
+                            <span>Show all device relations per group address (may be slow on large projects)</span>
+                        </label>
                     </div>
                 </div>
                 <div class="settings-tab-panel" role="tabpanel" data-settings-panel="layout">

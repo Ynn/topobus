@@ -32,6 +32,7 @@ export function readTheme(force = false) {
         objectFillST: graphVal('object-fill-s-t', graphVal('object-fill-tx', '#e2f4ee')),
         objectFillS: graphVal('object-fill-s', graphVal('object-fill', '#fff7e6')),
         objectFillNoC: graphVal('object-fill-no-c', '#e2e8f0'),
+        objectFillIsolated: graphVal('object-fill-isolated', '#e2e8f0'),
         objectFillOther: graphVal('object-fill-other', graphVal('object-fill', '#fff7e6')),
         objectBorder: graphVal('object-border', '#d7b56a'),
         lineFill: graphVal('line-fill', 'rgba(15,118,110,0.08)'),

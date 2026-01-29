@@ -11,7 +11,9 @@ try {
 }
 
 const BUILD_ID = self.__TOPOBUS_BUILD_ID__ || 'dev';
-const CACHE_NAME = `topobus-static-${BUILD_ID}`;
+const DEV_MODE = BUILD_ID === 'dev' ||
+  (self.location && /^(localhost|127\.0\.0\.1)$/.test(self.location.hostname || ''));
+const CACHE_NAME = DEV_MODE ? 'topobus-static-dev' : `topobus-static-${BUILD_ID}`;
 const CORE_ASSETS = [
   './index.html',
   './styles.css',
@@ -173,6 +175,19 @@ async function handleNavigation(request) {
 
 async function handleAsset(request) {
   const cache = await caches.open(CACHE_NAME);
+  if (DEV_MODE) {
+    try {
+      const response = await fetch(request);
+      if (response && response.ok) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    } catch (error) {
+      const cached = await cache.match(request);
+      return cached || new Response('Offline', { status: 504, statusText: 'Offline' });
+    }
+  }
+
   const cached = await cache.match(request);
   if (cached) {
     // Avoid mixing versions: core assets are only updated on SW upgrade (new CACHE_NAME).

@@ -415,6 +415,7 @@ function setupToolbarControls() {
     const relayoutBtn = document.getElementById('btn-relayout');
     const fullscreenBtn = document.getElementById('btn-graph-fullscreen');
     const exportSvgBtn = document.getElementById('btn-export-svg');
+    const legendBtn = document.getElementById('btn-graph-legend');
     const exportCsvBtn = document.getElementById('btn-export-csv');
 
     if (expandBtn) {
@@ -454,9 +455,52 @@ function setupToolbarControls() {
     if (exportSvgBtn) {
         exportSvgBtn.addEventListener('click', () => exportSvg());
     }
+    if (legendBtn) {
+        legendBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleGraphLegend();
+        });
+        ensureGraphLegendAutoHideBound();
+    }
     if (exportCsvBtn) {
         exportCsvBtn.addEventListener('click', () => exportTableCsv());
     }
+}
+
+let graphLegendAutoHideBound = false;
+
+function setGraphLegendVisible(visible) {
+    const el = document.getElementById('graph-legend');
+    if (!el) return;
+    el.classList.toggle('hidden', !visible);
+}
+
+function toggleGraphLegend() {
+    const el = document.getElementById('graph-legend');
+    if (!el) return;
+    const currentlyHidden = el.classList.contains('hidden');
+    setGraphLegendVisible(currentlyHidden);
+}
+
+function ensureGraphLegendAutoHideBound() {
+    if (graphLegendAutoHideBound) return;
+    graphLegendAutoHideBound = true;
+
+    document.addEventListener('click', (e) => {
+        const legend = document.getElementById('graph-legend');
+        if (!legend || legend.classList.contains('hidden')) return;
+
+        const btn = document.getElementById('btn-graph-legend');
+        const target = e && e.target ? e.target : null;
+        if (!target) {
+            setGraphLegendVisible(false);
+            return;
+        }
+        if (btn && btn.contains(target)) return;
+        if (legend.contains(target)) return;
+        setGraphLegendVisible(false);
+    }, true);
 }
 
 function findGraphMatch(query) {

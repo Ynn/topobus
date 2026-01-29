@@ -94,7 +94,7 @@ export function updateMinimap() {
 
     elements.forEach(cell => {
         const kind = cell.get('kind');
-        if (kind === 'groupobject' || kind === 'composite-object') return;
+        if (kind === 'groupobject' || kind === 'composite-object' || kind === 'groupobject-frame') return;
         const bbox = cell.getBBox();
         const x = bbox.x * scale + offsetX;
         const y = bbox.y * scale + offsetY;
@@ -130,7 +130,7 @@ function computeGraphBounds(elements) {
     elements.forEach(cell => {
         if (cell.isLink && cell.isLink()) return;
         const kind = cell.get('kind');
-        if (kind === 'groupobject' || kind === 'composite-object') return;
+        if (kind === 'groupobject' || kind === 'composite-object' || kind === 'groupobject-frame') return;
         const bbox = cell.getBBox();
         minX = Math.min(minX, bbox.x);
         minY = Math.min(minY, bbox.y);
