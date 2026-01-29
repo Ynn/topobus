@@ -12,6 +12,7 @@ let activeSettingsTab = 'theme';
 
 const DEFAULT_SETTINGS = {
     theme: 'latte',
+    productLanguage: 'en',
     showAllGroupLinks: false,
     elkPreset: 'balanced',
     elk: {
@@ -164,6 +165,12 @@ function bindSettingsControls(dom) {
         dom.settingsTheme.addEventListener('change', (event) => {
             const value = event.target.value;
             updateDraft({ theme: value });
+        });
+    }
+    if (dom.settingsProductLanguage) {
+        dom.settingsProductLanguage.addEventListener('change', (event) => {
+            const value = event.target.value || 'en';
+            updateDraft({ productLanguage: value });
         });
     }
     if (dom.settingsShowAllGaLinks) {
@@ -430,6 +437,7 @@ function syncSettingsUI(settings) {
     const dom = getDom();
     if (!dom) return;
     if (dom.settingsTheme) dom.settingsTheme.value = settings.theme || 'latte';
+    if (dom.settingsProductLanguage) dom.settingsProductLanguage.value = settings.productLanguage || 'en';
     if (dom.settingsShowAllGaLinks) {
         dom.settingsShowAllGaLinks.checked = Boolean(settings.showAllGroupLinks);
     }

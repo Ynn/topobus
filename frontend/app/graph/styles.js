@@ -117,7 +117,6 @@ export function applyElementStyle(element, theme, selected) {
     if (kind === 'groupobject' || kind === 'composite-object') {
         const props = element.get('nodeProps') || {};
         const category = props.semantic_category != null ? String(props.semantic_category) : '';
-        const peerCount = Number(element.get('gaPeerCount') || 0);
         const fill = category === 'no_communication'
             ? theme.objectFillNoC
             : (category === 'sending_and_transmit'
@@ -140,10 +139,9 @@ export function applyElementStyle(element, theme, selected) {
                                         ? theme.objectFillS
                                         : theme.objectFillOther));
                         })())));
-        const finalFill = peerCount <= 1 ? (theme.objectFillIsolated || theme.objectFillNoC) : fill;
         const addressColor = selected ? (theme.accentStrong || theme.accent) : theme.ink;
         const nameColor = selected ? (theme.accentStrong || theme.accent) : theme.ink;
-        element.attr('body/fill', finalFill);
+        element.attr('body/fill', fill);
         element.attr('body/stroke', selected ? theme.accent : theme.objectBorder);
         element.attr('body/strokeWidth', selected ? 2.4 : 1.5);
         element.attr('address/fill', addressColor);

@@ -1,6 +1,12 @@
 use axum::{extract::{Multipart, State}, http::StatusCode, Json};
 
-use topobus_core::{build_project_graphs, load_knxproj_bytes, InvalidPasswordError, PasswordRequiredError, ProjectGraphs};
+use topobus_core::{
+    build_project_graphs,
+    load_knxproj_bytes_with_language,
+    InvalidPasswordError,
+    PasswordRequiredError,
+    ProjectGraphs,
+};
 use crate::server::config::ServerConfig;
 use crate::server::validation::{FileValidator, ValidationError};
 
@@ -17,6 +23,7 @@ pub async fn handle_upload(
     let mut filename = None;
     let mut data = None;
     let mut password: Option<String> = None;
+    let mut preferred_language: Option<String> = None;
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         (
@@ -43,6 +50,17 @@ pub async fn handle_upload(
             let value = value.trim().to_string();
             if !value.is_empty() {
                 password = Some(value);
+            }
+        } else if name == "product_language" {
+            let value = field.text().await.map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to read product language: {}", e),
+                )
+            })?;
+            let value = value.trim().to_string();
+            if !value.is_empty() {
+                preferred_language = Some(value);
             }
         }
     }
@@ -80,7 +98,12 @@ pub async fn handle_upload(
     }
 
     // Parse the KNX project
-    let project_data = load_knxproj_bytes(data.as_ref(), password.as_deref()).map_err(|e| {
+    let project_data = load_knxproj_bytes_with_language(
+        data.as_ref(),
+        password.as_deref(),
+        preferred_language.as_deref(),
+    )
+    .map_err(|e| {
         log::warn!("KNX parse error: {:?}", e);
         if e.downcast_ref::<PasswordRequiredError>().is_some() {
             (

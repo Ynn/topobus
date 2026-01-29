@@ -22,7 +22,7 @@ export class ApiClient {
         this.defaultRetries = options.maxRetries || 3;
     }
 
-    async uploadProject(file, password, options = {}) {
+    async uploadProject(file, password, preferredLanguage, options = {}) {
         const maxRetries = Number.isFinite(options.maxRetries) ? options.maxRetries : this.defaultRetries;
         const timeout = Number.isFinite(options.timeout) ? options.timeout : this.defaultTimeout;
 
@@ -30,7 +30,7 @@ export class ApiClient {
             try {
                 const response = await this.#fetchWithTimeout(`${this.baseUrl}/api/upload`, {
                     method: 'POST',
-                    body: this.#buildFormData(file, password)
+                    body: this.#buildFormData(file, password, preferredLanguage)
                 }, timeout);
 
                 const bodyText = await response.text();
@@ -53,11 +53,14 @@ export class ApiClient {
         throw new ApiError('Upload failed after retries', 'upload_failed', 0);
     }
 
-    #buildFormData(file, password) {
+    #buildFormData(file, password, preferredLanguage) {
         const formData = new FormData();
         formData.append('file', file);
         if (password) {
             formData.append('password', password);
+        }
+        if (preferredLanguage) {
+            formData.append('product_language', preferredLanguage);
         }
         return formData;
     }

@@ -222,6 +222,15 @@
                         </select>
                     </div>
                     <div class="settings-section">
+                        <label class="settings-label" for="settings-product-language">Product language</label>
+                        <select id="settings-product-language" class="settings-select">
+                            <option value="en">English (EN)</option>
+                            <option value="fr">French (FR)</option>
+                            <option value="de">German (DE)</option>
+                        </select>
+                        <div class="settings-note">Used when translations are available. Fallback: EN → FR → DE → other.</div>
+                    </div>
+                    <div class="settings-section">
                         <label class="settings-toggle">
                             <input type="checkbox" id="settings-show-all-ga-links" />
                             <span>Show all device relations per group address (may be slow on large projects)</span>

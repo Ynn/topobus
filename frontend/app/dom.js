@@ -50,6 +50,7 @@ export function initDom() {
         settingsOverlay: document.getElementById('settings-overlay'),
         settingsClose: document.getElementById('settings-close'),
         settingsTheme: document.getElementById('settings-theme'),
+        settingsProductLanguage: document.getElementById('settings-product-language'),
         settingsShowAllGaLinks: document.getElementById('settings-show-all-ga-links'),
         settingsPreset: document.getElementById('settings-elk-preset'),
         selectionBanner: document.getElementById('selection-banner'),

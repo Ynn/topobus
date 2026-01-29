@@ -7,5 +7,12 @@ pub mod xml_tags;
 pub mod xml_utils;
 pub mod zip_utils;
 
-pub use adapter::{load_knxproj, load_knxproj_bytes, InvalidPasswordError, PasswordRequiredError};
+pub use adapter::{
+    load_knxproj,
+    load_knxproj_bytes,
+    load_knxproj_bytes_with_language,
+    load_knxproj_with_language,
+    InvalidPasswordError,
+    PasswordRequiredError,
+};
 pub use model::*;

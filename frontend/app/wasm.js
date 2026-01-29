@@ -31,10 +31,10 @@ export async function initWasm() {
     return wasmInitPromise;
 }
 
-export async function parseKnxprojBytes(bytes, password) {
+export async function parseKnxprojBytes(bytes, password, preferredLanguage) {
     const ready = await initWasm();
     if (!ready || !wasmModule || typeof wasmModule.parse_knxproj !== 'function') {
         throw new Error('WASM parser not available');
     }
-    return wasmModule.parse_knxproj(bytes, password || undefined);
+    return wasmModule.parse_knxproj(bytes, password || undefined, preferredLanguage || undefined);
 }

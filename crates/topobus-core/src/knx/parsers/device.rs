@@ -34,6 +34,7 @@ pub(crate) fn extract_devices<R: Read + Seek>(
     zip: &mut ZipArchive<R>,
     group_address_by_id: &HashMap<String, GroupAddressInfo>,
     manufacturer_names: &HashMap<String, String>,
+    preferred_language: Option<&str>,
 ) -> Result<Vec<DeviceInfo>> {
     let mut devices = Vec::new();
     let mut hardware_cache: HashMap<String, HardwareData> = HashMap::new();
@@ -207,7 +208,7 @@ pub(crate) fn extract_devices<R: Read + Seek>(
         }
 
         let app_id = if let Some(hw) = &hardware2program {
-            ensure_app_program(zip, hw, hardware_data, &mut app_cache)?
+            ensure_app_program(zip, hw, hardware_data, &mut app_cache, preferred_language)?
         } else {
             None
         };
@@ -485,6 +486,7 @@ fn ensure_app_program<R: Read + Seek>(
     hardware2program: &str,
     hardware_data: Option<&HardwareData>,
     app_cache: &mut HashMap<String, AppProgram>,
+    preferred_language: Option<&str>,
 ) -> Result<Option<String>> {
     let app_id = hardware_data
         .and_then(|data| data.hardware2program.get(hardware2program))
@@ -495,7 +497,7 @@ fn ensure_app_program<R: Read + Seek>(
     };
 
     if !app_cache.contains_key(&app_id) {
-        let program = match load_app_program(zip, &app_id) {
+        let program = match load_app_program(zip, &app_id, preferred_language) {
             Ok(program) => program,
             Err(err) => {
                 log::warn!("Missing app program {} ({})", app_id, err);

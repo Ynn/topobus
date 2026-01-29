@@ -21,6 +21,7 @@ use crate::knx::zip_utils::{read_zip_entry, strip_bom};
 pub(crate) fn load_app_program<R: Read + Seek>(
     zip: &mut ZipArchive<R>,
     app_id: &str,
+    preferred_language: Option<&str>,
 ) -> Result<AppProgram> {
     let manufacturer = app_id.split('_').next().unwrap_or("");
     let path = format!("{}/{}.xml", manufacturer, app_id);
@@ -28,7 +29,7 @@ pub(crate) fn load_app_program<R: Read + Seek>(
     let doc =
         Document::parse(strip_bom(&xml)).with_context(|| format!("Failed to parse {}", path))?;
     let prefix = format!("{}_", app_id);
-    let translations = build_translations(&doc, &prefix);
+    let translations = build_translations(&doc, &prefix, preferred_language);
 
     let mut arguments = HashMap::new();
     for arg in doc

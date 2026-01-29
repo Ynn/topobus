@@ -47,16 +47,40 @@ const ZIP_PASSWORD_KEY_LEN: usize = 32;
 pub fn load_knxproj(path: &str, password: Option<&str>) -> Result<KnxProjectData> {
     log::info!("Loading KNX project from: {}", path);
     let file = File::open(path).context("Failed to open .knxproj file")?;
-    load_knxproj_reader(file, password)
+    load_knxproj_reader(file, password, None)
 }
 
 pub fn load_knxproj_bytes(data: &[u8], password: Option<&str>) -> Result<KnxProjectData> {
     log::info!("Loading KNX project from bytes ({} bytes)", data.len());
     let cursor = Cursor::new(data);
-    load_knxproj_reader(cursor, password)
+    load_knxproj_reader(cursor, password, None)
 }
 
-fn load_knxproj_reader<R: Read + Seek>(reader: R, password: Option<&str>) -> Result<KnxProjectData> {
+pub fn load_knxproj_with_language(
+    path: &str,
+    password: Option<&str>,
+    preferred_language: Option<&str>,
+) -> Result<KnxProjectData> {
+    log::info!("Loading KNX project from: {}", path);
+    let file = File::open(path).context("Failed to open .knxproj file")?;
+    load_knxproj_reader(file, password, preferred_language)
+}
+
+pub fn load_knxproj_bytes_with_language(
+    data: &[u8],
+    password: Option<&str>,
+    preferred_language: Option<&str>,
+) -> Result<KnxProjectData> {
+    log::info!("Loading KNX project from bytes ({} bytes)", data.len());
+    let cursor = Cursor::new(data);
+    load_knxproj_reader(cursor, password, preferred_language)
+}
+
+fn load_knxproj_reader<R: Read + Seek>(
+    reader: R,
+    password: Option<&str>,
+    preferred_language: Option<&str>,
+) -> Result<KnxProjectData> {
     let mut zip = ZipArchive::new(reader).context("Failed to read .knxproj archive")?;
 
     let zip_password = password.map(derive_zip_password);
@@ -81,6 +105,7 @@ fn load_knxproj_reader<R: Read + Seek>(reader: R, password: Option<&str>) -> Res
         &mut zip,
         &group_address_by_id,
         &manufacturer_names,
+        preferred_language,
     )?;
 
     let mut inferred_dpts: HashMap<String, String> = HashMap::new();

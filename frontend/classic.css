@@ -1810,6 +1810,12 @@ tr.table-spacer td {
     margin-bottom: 6px;
 }
 
+.settings-note {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
 .settings-select,
 .settings-input {
     width: 100%;

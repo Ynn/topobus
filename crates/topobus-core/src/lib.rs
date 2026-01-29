@@ -6,7 +6,13 @@ pub use graph::{
     NodeKind,
 };
 pub use knx::{
-    load_knxproj, load_knxproj_bytes, InvalidPasswordError, KnxProjectData, PasswordRequiredError,
+    load_knxproj,
+    load_knxproj_bytes,
+    load_knxproj_bytes_with_language,
+    load_knxproj_with_language,
+    InvalidPasswordError,
+    KnxProjectData,
+    PasswordRequiredError,
 };
 
 use serde::{Deserialize, Serialize};
