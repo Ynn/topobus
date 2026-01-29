@@ -99,6 +99,9 @@ export function renderGraph(projectData, viewType) {
             const handler = (cellView) => {
             const kind = cellView.model.get('kind');
             if (viewType === 'group' || viewType === 'device') {
+                if (kind === 'groupobject-frame') {
+                    return false;
+                }
                 if (kind === 'groupobject') {
                     return { elementMove: false, linkMove: false, labelMove: false };
                 }

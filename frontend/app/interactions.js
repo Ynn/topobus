@@ -623,6 +623,12 @@ function enableGroupSummary() {
     });
 
     state.graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'groupobject-frame') return;
+        el.attr('body/display', 'none');
+        el.attr('label/display', 'none');
+    });
+
+    state.graph.getElements().forEach((el) => {
         if (el.get('kind') !== 'device') return;
         const props = el.get('nodeProps') || {};
         const summary = props.address || el.get('fullAddress') || el.attr('address/text') || '';
@@ -677,6 +683,12 @@ function disableGroupSummary() {
         el.removeAttr('body/display');
         el.removeAttr('name/display');
         el.removeAttr('address/display');
+    });
+
+    state.graph.getElements().forEach((el) => {
+        if (el.get('kind') !== 'groupobject-frame') return;
+        el.removeAttr('body/display');
+        el.removeAttr('label/display');
     });
     state.graph.getElements().forEach((el) => {
         if (el.get('kind') !== 'device') return;

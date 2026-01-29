@@ -126,10 +126,30 @@ export function getCouplerKind(address) {
 }
 
 export function compareGroupAddressNodes(a, b) {
+    const parseNumber = (value) => {
+        if (value == null) return Number.NaN;
+        const num = Number(String(value).trim());
+        return Number.isFinite(num) ? num : Number.NaN;
+    };
+
+    const aNum = parseNumber(getNodeProp(a, 'number', null));
+    const bNum = parseNumber(getNodeProp(b, 'number', null));
+    const aHas = Number.isFinite(aNum);
+    const bHas = Number.isFinite(bNum);
+    if (aHas && bHas && aNum !== bNum) return aNum - bNum;
+    if (aHas && !bHas) return -1;
+    if (!aHas && bHas) return 1;
+
+    const aKey = getNodeProp(a, 'com_object_ref_id', '') || getNodeProp(a, 'object_name', a.label || '');
+    const bKey = getNodeProp(b, 'com_object_ref_id', '') || getNodeProp(b, 'object_name', b.label || '');
+    const keyCmp = String(aKey).localeCompare(String(bKey));
+    if (keyCmp !== 0) return keyCmp;
+
     const aAddr = getNodeProp(a, 'group_address', '');
     const bAddr = getNodeProp(b, 'group_address', '');
-    const cmp = compareGroupAddress(aAddr, bAddr);
-    if (cmp !== 0) return cmp;
+    const addrCmp = compareGroupAddress(aAddr, bAddr);
+    if (addrCmp !== 0) return addrCmp;
+
     const aName = getNodeProp(a, 'object_name', a.label || '');
     const bName = getNodeProp(b, 'object_name', b.label || '');
     return String(aName).localeCompare(String(bName));

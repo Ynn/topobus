@@ -376,6 +376,11 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
             let obj_id = format!("{}_obj_{}", device_id, idx);
             let mut obj_properties = HashMap::new();
             obj_properties.insert("group_address".to_string(), link.group_address.clone());
+            if let Some(ref_id) = &link.com_object_ref_id {
+                if !ref_id.trim().is_empty() {
+                    obj_properties.insert("com_object_ref_id".to_string(), ref_id.clone());
+                }
+            }
             if let Some(key) = link.com_object_ref_id.as_ref() {
                 if let Some(addresses) = group_addresses_by_object.get(key) {
                     if !addresses.is_empty() {
@@ -466,6 +471,7 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
                 .or_default()
                 .push(GroupObjectLink {
                     id: obj_id,
+                    device_id: device_id.clone(),
                     ets_sending: link.ets_sending,
                     ets_receiving: link.ets_receiving,
                 });
@@ -528,37 +534,125 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
         let receivers: Vec<&GroupObjectLink> =
             objects.iter().filter(|obj| obj.ets_receiving).collect();
 
-        let directed = senders.len() == 1 && !receivers.is_empty();
-        if directed {
-            let source = senders[0];
-            for obj in objects.iter() {
-                if obj.id == source.id {
+        let safe_ga = ga_address
+            .replace('/', "_")
+            .replace('.', "_")
+            .replace(' ', "_");
+
+        let mut connected: HashMap<String, bool> = HashMap::new();
+        for obj in &objects {
+            connected.insert(obj.id.clone(), false);
+        }
+
+        // Prefer explicit directed edges from every ETS sender to every ETS receiver.
+        // Only create inter-device edges (frontend hides intra-device links).
+        if !senders.is_empty() && !receivers.is_empty() {
+            for source in &senders {
+                for target in &receivers {
+                    if source.id == target.id {
+                        continue;
+                    }
+                    if source.device_id == target.device_id {
+                        continue;
+                    }
+                    let mut properties = HashMap::new();
+                    properties.insert("direction".to_string(), "directed".to_string());
+                    properties.insert("group_address".to_string(), ga_address.clone());
+
+                    edges.push(Edge {
+                        id: format!("ga_{}_{}_to_{}", safe_ga, source.id, target.id),
+                        source: source.id.clone(),
+                        target: target.id.clone(),
+                        kind: EdgeKind::Links,
+                        label: None,
+                        properties,
+                    });
+                    if let Some(entry) = connected.get_mut(&source.id) {
+                        *entry = true;
+                    }
+                    if let Some(entry) = connected.get_mut(&target.id) {
+                        *entry = true;
+                    }
+                }
+            }
+        }
+
+        // Ensure every object that belongs to a device with at least one other device on this GA
+        // has at least one inter-device link, even if ETS flags are incomplete.
+        let mut by_device: HashMap<String, Vec<&GroupObjectLink>> = HashMap::new();
+        for obj in &objects {
+            by_device
+                .entry(obj.device_id.clone())
+                .or_default()
+                .push(obj);
+        }
+
+        if by_device.len() >= 2 {
+            let mut devices: Vec<String> = by_device.keys().cloned().collect();
+            devices.sort();
+
+            // Pick a stable target per device: prefer a receiver, then a sender, then first.
+            let pick_anchor = |dev: &str| -> Option<&GroupObjectLink> {
+                let list = by_device.get(dev)?;
+                list.iter().find(|o| o.ets_receiving).copied()
+                    .or_else(|| list.iter().find(|o| o.ets_sending).copied())
+                    .or_else(|| list.first().copied())
+            };
+
+            for obj in &objects {
+                let is_connected = connected.get(&obj.id).copied().unwrap_or(false);
+                if is_connected {
                     continue;
                 }
-                let mut properties = HashMap::new();
-                properties.insert("direction".to_string(), "directed".to_string());
-                properties.insert("group_address".to_string(), ga_address.clone());
 
-                edges.push(Edge {
-                    id: format!("{}_to_{}", source.id, obj.id),
-                    source: source.id.clone(),
-                    target: obj.id.clone(),
-                    kind: EdgeKind::Links,
-                    label: None,
-                    properties,
-                });
-            }
-        } else {
-            let hub = &objects[0];
-            for obj in objects.iter().skip(1) {
+                // Connect to an anchor in a different device.
+                let mut other_anchor: Option<&GroupObjectLink> = None;
+                for dev in &devices {
+                    if dev == &obj.device_id {
+                        continue;
+                    }
+                    other_anchor = pick_anchor(dev);
+                    if other_anchor.is_some() {
+                        break;
+                    }
+                }
+                let Some(anchor) = other_anchor else {
+                    continue;
+                };
+
                 let mut properties = HashMap::new();
                 properties.insert("direction".to_string(), "undirected".to_string());
                 properties.insert("group_address".to_string(), ga_address.clone());
 
                 edges.push(Edge {
-                    id: format!("{}_to_{}", hub.id, obj.id),
-                    source: hub.id.clone(),
-                    target: obj.id.clone(),
+                    id: format!("ga_{}_fallback_{}_to_{}", safe_ga, obj.id, anchor.id),
+                    source: obj.id.clone(),
+                    target: anchor.id.clone(),
+                    kind: EdgeKind::Links,
+                    label: None,
+                    properties,
+                });
+
+                if let Some(entry) = connected.get_mut(&obj.id) {
+                    *entry = true;
+                }
+                if let Some(entry) = connected.get_mut(&anchor.id) {
+                    *entry = true;
+                }
+            }
+        } else if edges.is_empty() {
+            // Single-device fallback: create a minimal chain (will be hidden by frontend anyway).
+            for pair in objects.windows(2) {
+                let a = &pair[0];
+                let b = &pair[1];
+                let mut properties = HashMap::new();
+                properties.insert("direction".to_string(), "undirected".to_string());
+                properties.insert("group_address".to_string(), ga_address.clone());
+
+                edges.push(Edge {
+                    id: format!("ga_{}_single_{}_to_{}", safe_ga, a.id, b.id),
+                    source: a.id.clone(),
+                    target: b.id.clone(),
                     kind: EdgeKind::Links,
                     label: None,
                     properties,
@@ -573,6 +667,7 @@ pub fn generate_group_address_graph(project: &KnxProjectData) -> GraphModel {
 #[derive(Clone)]
 struct GroupObjectLink {
     id: String,
+    device_id: String,
     ets_sending: bool,
     ets_receiving: bool,
 }

@@ -8,6 +8,7 @@ const highlightedLinks = new Set();
 export function zForElement(kind, viewType) {
     if (viewType === 'group' || viewType === 'device') {
         if (kind === 'groupobject') return 10;
+        if (kind === 'groupobject-frame') return 6;
         if (kind === 'device') return 1;
         return 5;
     }

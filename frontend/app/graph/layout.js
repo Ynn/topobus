@@ -5,6 +5,7 @@ import { getLayoutSettings, readTheme } from '../theme.js';
 import { syncPaperToContent } from '../interactions.js';
 import {
     compareGroupAddressNodes,
+    compareGroupAddress,
     compareIndividualAddress,
     compareLabelNumber,
     fitTextToWidth,
@@ -47,8 +48,82 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
             childrenByParent.get(node.parent_id).push(node);
         }
     });
+
+    const sortChildrenForGroupView = (children) => {
+        if (!Array.isArray(children) || children.length < 2) {
+            if (Array.isArray(children)) {
+                children.sort((a, b) => compareGroupAddressNodes(a, b));
+            }
+            return;
+        }
+
+        const keyCounts = new Map();
+        children.forEach((child) => {
+            const props = child && child.properties ? child.properties : {};
+            const key = props.com_object_ref_id ? String(props.com_object_ref_id) : '';
+            if (!key) return;
+            keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
+        });
+
+        const isFramedKey = (key) => Boolean(key && (keyCounts.get(key) || 0) >= 2);
+        const keyOf = (child) => {
+            const props = child && child.properties ? child.properties : {};
+            return props.com_object_ref_id ? String(props.com_object_ref_id) : '';
+        };
+        const groupKeyOf = (child) => {
+            const key = keyOf(child);
+            if (isFramedKey(key)) return key;
+            return `__single__:${child && child.id ? String(child.id) : ''}`;
+        };
+        const gaOf = (child) => {
+            const props = child && child.properties ? child.properties : {};
+            return props.group_address ? String(props.group_address) : '';
+        };
+        const sendingOf = (child) => {
+            const props = child && child.properties ? child.properties : {};
+            const addr = props.ets_sending_address ? String(props.ets_sending_address) : '';
+            return addr || gaOf(child);
+        };
+
+        const groups = new Map();
+        children.forEach((child) => {
+            const gk = groupKeyOf(child);
+            if (!groups.has(gk)) groups.set(gk, []);
+            groups.get(gk).push(child);
+        });
+
+        const groupList = Array.from(groups.entries()).map(([gk, items]) => {
+            const sendingAddr = items.map(sendingOf).find((v) => v) || '';
+            items.sort((a, b) => {
+                const aGa = gaOf(a);
+                const bGa = gaOf(b);
+                const aIsSender = sendingAddr && aGa === sendingAddr;
+                const bIsSender = sendingAddr && bGa === sendingAddr;
+                if (aIsSender !== bIsSender) return aIsSender ? -1 : 1;
+                const addrCmp = compareGroupAddress(aGa, bGa);
+                if (addrCmp !== 0) return addrCmp;
+                return compareGroupAddressNodes(a, b);
+            });
+            const sortKey = items.length ? sendingOf(items[0]) : '';
+            return { gk, items, sortKey };
+        });
+
+        groupList.sort((a, b) => {
+            const addrCmp = compareGroupAddress(a.sortKey, b.sortKey);
+            if (addrCmp !== 0) return addrCmp;
+            return String(a.gk).localeCompare(String(b.gk));
+        });
+
+        children.length = 0;
+        groupList.forEach((g) => children.push(...g.items));
+    };
+
     childrenByParent.forEach((children) => {
-        children.sort((a, b) => compareGroupAddressNodes(a, b));
+        if (viewType === 'group') {
+            sortChildrenForGroupView(children);
+        } else {
+            children.sort((a, b) => compareGroupAddressNodes(a, b));
+        }
     });
 
     const dom = getDom();
@@ -56,12 +131,50 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
     const settings = getLayoutSettings();
     const sideGap = Math.max(24, Math.round(settings.columnGap * 0.5));
 
+    const computeDeviceHeight = (children) => {
+        const rows = children.length;
+        if (!rows) return settings.headerHeight + settings.padding;
+
+        const extraFrameGap = Math.max(10, Math.round(settings.rowHeight * 0.28));
+        const frameToFrameExtraGap = Math.max(extraFrameGap + 6, Math.round(settings.rowHeight * 0.42));
+
+        const keyCounts = new Map();
+        children.forEach((child) => {
+            const key = child && child.properties && child.properties.com_object_ref_id
+                ? String(child.properties.com_object_ref_id)
+                : '';
+            if (!key) return;
+            keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
+        });
+
+        const framedKeyOf = (child) => {
+            const key = child && child.properties && child.properties.com_object_ref_id
+                ? String(child.properties.com_object_ref_id)
+                : '';
+            if (!key) return '';
+            return (keyCounts.get(key) || 0) >= 2 ? key : '';
+        };
+
+        let gaps = 0;
+        for (let i = 0; i < rows - 1; i += 1) {
+            const curKey = framedKeyOf(children[i]);
+            const nextKey = framedKeyOf(children[i + 1]);
+            let gap = settings.rowGap;
+            if (curKey !== nextKey && (curKey || nextKey)) {
+                gap += (curKey && nextKey) ? frameToFrameExtraGap : extraFrameGap;
+            }
+            gaps += gap;
+        }
+
+        return settings.headerHeight + settings.padding +
+            rows * settings.rowHeight +
+            gaps;
+    };
+
     const layouts = deviceNodes.map(node => {
         const children = childrenByParent.get(node.id) || [];
-        const rows = children.length;
         const deviceWidth = computeGroupDeviceWidth(node, children, settings);
-        const height = settings.headerHeight + settings.padding +
-            rows * settings.rowHeight + Math.max(0, rows - 1) * settings.rowGap;
+        const height = computeDeviceHeight(children);
         return { node, children, width: deviceWidth, height };
     });
 
@@ -94,7 +207,7 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
         }
     }
 
-    applyGroupLayouts(layouts, elementsById, settings);
+    applyGroupLayouts(layouts, elementsById, settings, { viewType });
 
     const edgeCount = state.currentGraphData && Array.isArray(state.currentGraphData.edges)
         ? state.currentGraphData.edges.length
@@ -108,7 +221,24 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
     }
 }
 
-function applyGroupLayouts(layouts, elementsById, settings) {
+function applyGroupLayouts(layouts, elementsById, settings, options = {}) {
+    const viewType = options.viewType || state.currentView;
+    // Remove previous duplicate-object frames (frames are recomputed on each layout pass).
+    if (state.graph && typeof state.graph.getCells === 'function') {
+        const frames = state.graph.getCells().filter((cell) => cell && cell.get && cell.get('kind') === 'groupobject-frame');
+        if (frames.length && typeof state.graph.removeCells === 'function') {
+            state.graph.removeCells(frames);
+        } else {
+            frames.forEach((cell) => {
+                if (cell && typeof cell.remove === 'function') {
+                    cell.remove();
+                }
+            });
+        }
+    }
+
+    const theme = readTheme();
+
     layouts.forEach(layout => {
         const deviceEl = elementsById.get(layout.node.id);
         if (!deviceEl) return;
@@ -116,23 +246,159 @@ function applyGroupLayouts(layouts, elementsById, settings) {
         deviceEl.position(layout.x, layout.y);
         updateDeviceText(deviceEl, layout.width, settings);
 
-        let yCursor = layout.y + settings.headerHeight;
-        layout.children.forEach((child) => {
-            const childEl = elementsById.get(child.id);
-            if (!childEl) return;
-            const childWidth = layout.width - settings.padding * 2;
-            childEl.resize(childWidth, settings.rowHeight);
-            childEl.position(layout.x + settings.padding, yCursor);
-            updateGroupObjectText(childEl, childWidth, settings);
-            yCursor += settings.rowHeight + settings.rowGap;
+        const childWidth = layout.width - settings.padding * 2;
+        const childX = layout.x + settings.padding;
+
+        // Build per-row metadata so we can add extra spacing around framed segments.
+        const childMeta = layout.children
+            .map((child) => {
+                const el = elementsById.get(child.id);
+                if (!el) return null;
+                const props = el.get ? (el.get('nodeProps') || {}) : {};
+                const key = props && props.com_object_ref_id ? String(props.com_object_ref_id) : '';
+                return { child, el, key };
+            })
+            .filter(Boolean);
+
+        const keyCounts = new Map();
+        childMeta.forEach(({ key }) => {
+            if (!key) return;
+            keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
+        });
+        childMeta.forEach((entry) => {
+            entry.isFramed = Boolean(entry.key && (keyCounts.get(entry.key) || 0) >= 2);
         });
 
-        layout.children.forEach(child => {
-            const childEl = elementsById.get(child.id);
-            if (childEl) {
-                deviceEl.embed(childEl);
-                childEl.set('expectedParent', deviceEl.id);
+        const extraFrameGap = Math.max(10, Math.round(settings.rowHeight * 0.28));
+        const frameToFrameExtraGap = Math.max(extraFrameGap + 6, Math.round(settings.rowHeight * 0.42));
+        let yCursor = layout.y + settings.headerHeight;
+        const seenGroupKey = new Set();
+        for (let i = 0; i < childMeta.length; i += 1) {
+            const { el } = childMeta[i];
+            const groupKey = childMeta[i].isFramed ? childMeta[i].key : `__single__:${el.id}`;
+            const isPrimary = !seenGroupKey.has(groupKey);
+            seenGroupKey.add(groupKey);
+            el.set('hideTitle', !isPrimary);
+            el.resize(childWidth, settings.rowHeight);
+            el.position(childX, yCursor);
+            updateGroupObjectText(el, childWidth, settings);
+            deviceEl.embed(el);
+            el.set('expectedParent', deviceEl.id);
+
+            const next = childMeta[i + 1];
+            let gap = settings.rowGap;
+            if (next) {
+                const curFrameKey = childMeta[i].isFramed ? childMeta[i].key : '';
+                const nextFrameKey = next.isFramed ? next.key : '';
+                const boundary = curFrameKey !== nextFrameKey;
+                if (boundary && (childMeta[i].isFramed || next.isFramed)) {
+                    gap += (curFrameKey && nextFrameKey) ? frameToFrameExtraGap : extraFrameGap;
+                }
             }
+            yCursor += settings.rowHeight + gap;
+        }
+
+        // Frames exist only in group view. In summary mode, keep them hidden (but still
+        // generated) so they reappear correctly when zooming back to detail, even if an async
+        // ELK layout completes while summary is active.
+        if (viewType !== 'group') {
+            return;
+        }
+        const hideFrames = state.groupSummaryMode;
+
+        // If the same communication object appears multiple times (linked to multiple group
+        // addresses), draw a non-interactive frame around those repeated nodes to make it obvious
+        // they are instances of the same object.
+        const byObjectKey = new Map();
+        childMeta.forEach((entry, index) => {
+            if (!entry.key || !entry.isFramed) return;
+            if (!byObjectKey.has(entry.key)) {
+                byObjectKey.set(entry.key, []);
+            }
+            byObjectKey.get(entry.key).push({ el: entry.el, index });
+        });
+
+        const baseX = layout.x + settings.padding;
+        const baseW = layout.width - settings.padding * 2;
+        const padX = Math.max(6, Math.round(settings.padding * 0.5));
+        const padY = Math.max(6, Math.round(settings.rowGap * 0.9));
+
+        const childRowH = settings.rowHeight;
+
+        const createFrameForRange = (key, rangeItems, rangeIndex) => {
+            if (!Array.isArray(rangeItems) || rangeItems.length < 2) return;
+
+            // Tight vertical bounds around the contiguous run.
+            const first = rangeItems[0].el;
+            const last = rangeItems[rangeItems.length - 1].el;
+            if (!first || !last) return;
+            const firstPos = first.position ? first.position() : null;
+            const lastPos = last.position ? last.position() : null;
+            if (!firstPos || !lastPos) return;
+
+            const minY = firstPos.y;
+            const maxY = lastPos.y + (last.size ? last.size().height : childRowH);
+
+            const x = Math.round(childX - padX);
+            const y = Math.round(minY - padY);
+            const w = Math.round(childWidth + padX * 2);
+            const h = Math.round((maxY - minY) + padY * 2);
+
+            const safeKey = String(key).replace(/[^a-zA-Z0-9_-]/g, '_');
+            const frameId = `frame_${deviceEl.id}_${safeKey}_${rangeIndex}`;
+
+            const frame = new joint.shapes.standard.Rectangle({
+                id: frameId,
+                kind: 'groupobject-frame',
+                attrs: {
+                    body: {
+                        fill: 'rgba(15, 23, 42, 0.12)',
+                        stroke: theme && theme.muted ? theme.muted : (theme && theme.border ? theme.border : '#888'),
+                        strokeWidth: 1.2,
+                        strokeDasharray: '',
+                        rx: 8,
+                        ry: 8,
+                        pointerEvents: 'none',
+                        display: hideFrames ? 'none' : undefined
+                    },
+                    label: {
+                        text: '',
+                        pointerEvents: 'none',
+                        display: hideFrames ? 'none' : undefined
+                    }
+                }
+            });
+            frame.position(x, y);
+            frame.resize(Math.max(1, w), Math.max(1, h));
+            frame.set('z', 6);
+            frame.set('nodeProps', { com_object_ref_id: key });
+
+            if (state.graph && typeof state.graph.addCell === 'function') {
+                state.graph.addCell(frame);
+            }
+            deviceEl.embed(frame);
+            frame.set('expectedParent', deviceEl.id);
+        };
+
+        byObjectKey.forEach((items, key) => {
+            if (!Array.isArray(items) || items.length < 2) return;
+            items.sort((a, b) => a.index - b.index);
+
+            // Split into contiguous segments to avoid gigantic frames if ordering ever differs.
+            let current = [items[0]];
+            let segmentIndex = 0;
+            for (let i = 1; i < items.length; i += 1) {
+                const prev = items[i - 1];
+                const cur = items[i];
+                if (cur.index === prev.index + 1) {
+                    current.push(cur);
+                } else {
+                    createFrameForRange(key, current, segmentIndex);
+                    segmentIndex += 1;
+                    current = [cur];
+                }
+            }
+            createFrameForRange(key, current, segmentIndex);
         });
     });
 
@@ -236,7 +502,7 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
         if (state.graph && state.graph.startBatch) {
             state.graph.startBatch('elk-layout');
         }
-        applyGroupLayouts(layouts, elementsById, settings);
+        applyGroupLayouts(layouts, elementsById, settings, { viewType });
         if (state.graph && state.graph.stopBatch) {
             state.graph.stopBatch('elk-layout');
         }
@@ -923,13 +1189,18 @@ export function updateGroupObjectText(objectEl, width, settings) {
     const theme = readTheme();
     const name = objectEl.get('fullName') || '';
     const address = objectEl.get('groupAddress') || '';
+    const hideTitle = objectEl.get && objectEl.get('hideTitle') === true;
     const leftPad = Math.max(8, Math.round(settings.padding * 0.7));
     const rightPad = leftPad;
 
     objectEl.attr('name/fontSize', settings.rowFont.name);
     objectEl.attr('address/fontSize', settings.rowFont.address);
+
     objectEl.attr('name/refX', leftPad);
+    objectEl.attr('address/refX', '100%');
     objectEl.attr('address/refX2', -rightPad);
+    objectEl.attr('address/textAnchor', 'end');
+    objectEl.attr('name/display', hideTitle ? 'none' : 'block');
 
     const nameFont = `600 ${settings.rowFont.name}px ${theme.fontSans}`;
     const addressFont = `700 ${settings.rowFont.address}px ${theme.fontMono}`;
@@ -937,7 +1208,7 @@ export function updateGroupObjectText(objectEl, width, settings) {
     const maxNameWidth = Math.max(20, width - leftPad - rightPad - settings.innerGap - addressWidth);
     const fittedName = fitTextToWidth(name, maxNameWidth, nameFont);
 
-    objectEl.attr('name/text', fittedName);
+    objectEl.attr('name/text', hideTitle ? '' : fittedName);
     objectEl.attr('address/text', address);
 }
 
