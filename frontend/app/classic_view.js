@@ -205,6 +205,33 @@ export function updateClassicView() {
     switchViewType(state.currentView || 'group', true);
 }
 
+export function resetClassicViewCaches() {
+    treeNodeIndex = new Map();
+    treeIdCounter = 0;
+    selectedTreeItem = null;
+    selectedTableRow = null;
+    tableSourceData = [];
+    tableSearchQuery = '';
+    tableSortState = { index: null, direction: 'asc' };
+    tableRowIndex = new Map();
+    tableRowByGraphId = new Map();
+    tableRowPositions = new Map();
+    tableColumnLabels = [];
+    tableColumnKeys = [];
+    tableColumnSignature = '';
+    tableColumnWidths = new Map();
+    lastTableColumns = [];
+    tableSortedRows = [];
+    tableRowHeight = 28;
+    tableVirtualMode = false;
+    tableScrollBound = false;
+    tableRenderFrame = null;
+    tableVisibleStart = 0;
+    tableVisibleEnd = 0;
+    buildingLookupCache = null;
+    buildingLookupProject = null;
+}
+
 function bindDelegatedEvents() {
     const dom = getDom();
     if (!dom) return;
@@ -1108,7 +1135,7 @@ function buildTopologyGroupObjectRows(device) {
             },
             data: {
                 number: entry.number || '',
-                object: entry.object || '',
+                object: stripLeadingObjectNumber(entry.object || ''),
                 func: entry.func || '',
                 group: addressesLabel,
                 desc: entry.desc || '',
@@ -1744,7 +1771,7 @@ function buildGroupAddressObjectRows(address) {
             },
             data: {
                 number: props.number != null ? String(props.number) : '',
-                object: props.object_name || props.object_name_raw || '',
+                object: stripLeadingObjectNumber(props.object_name || props.object_name_raw || ''),
                 deviceAddress: deviceAddress || '',
                 device: deviceLabel || (parent ? parent.label : ''),
                 func: props.object_function_text || '',
@@ -2039,6 +2066,12 @@ function normalizeGroupAddress(value) {
     if (!str) return '';
     const match = str.match(/(\d{1,3}\/\d{1,3}(?:\/\d{1,3})?)/);
     return match ? match[1] : str;
+}
+
+function stripLeadingObjectNumber(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    return text.replace(/^\s*\[#\d+\]\s*/i, '');
 }
 
 function applyTableSearch(rows) {

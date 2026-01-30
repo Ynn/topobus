@@ -318,10 +318,10 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                     parts.push(format!("[#{}]", num));
                 }
 
-                let name_part = object_name_raw
-                    .clone()
-                    .or_else(|| object_text.clone())
-                    .filter(|value| !value.trim().is_empty());
+            let name_part = object_text
+                .clone()
+                .or_else(|| object_name_raw.clone())
+                .filter(|value| !value.trim().is_empty());
                 let function_part = object_function_text
                     .clone()
                     .filter(|value| !value.trim().is_empty());
@@ -340,14 +340,14 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                     }
                 }
 
-                let object_name = if parts.is_empty() {
-                    base_name
-                        .clone()
-                        .filter(|name| !name.trim().is_empty())
-                        .unwrap_or(fallback)
-                } else {
-                    parts.join(" ")
-                };
+            let object_name = if parts.is_empty() {
+                base_name
+                    .clone()
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or(fallback)
+            } else {
+                parts.join(" ")
+            };
 
                 let ets_sending = link_index == 0;
                 group_links.push(GroupLink {

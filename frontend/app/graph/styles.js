@@ -227,9 +227,12 @@ export function applySelectionStyles() {
     const idx = state.selectionIndex || {};
     const kind = selected.get('kind');
     const highlightRefs = new Set();
+    const dimViaCss = state.currentView === 'group';
+    setGraphDim(dimViaCss);
     const markElement = (element, options = {}) => {
         if (!element) return;
         applyElementStyle(element, theme, true);
+        setViewHighlight(element, true);
         highlightedElements.add(element);
         const kind = element.get('kind');
         if (kind === 'groupobject' || kind === 'composite-object') {
@@ -247,6 +250,7 @@ export function applySelectionStyles() {
     const markLink = (link) => {
         if (!link) return;
         applyLinkStyle(link, theme, true);
+        setViewHighlight(link, true);
         highlightedLinks.add(link);
     };
 
@@ -288,7 +292,7 @@ export function applySelectionStyles() {
 
     if (kind === 'groupobject' || kind === 'composite-object') {
         const ga = selected.get('groupAddress');
-        highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink);
+        highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink, dimViaCss);
         highlightFramesByRefs(graph, theme, highlightRefs);
         return;
     }
@@ -296,7 +300,7 @@ export function applySelectionStyles() {
     if (selected.isLink && selected.isLink()) {
         const ga = selected.get('groupAddress');
         if (ga) {
-            highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink);
+            highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink, dimViaCss);
             highlightFramesByRefs(graph, theme, highlightRefs);
             return;
         }
@@ -304,20 +308,55 @@ export function applySelectionStyles() {
 
     if ((kind === 'device' || kind === 'composite-device') && state.groupSummaryMode) {
         markElement(selected);
-        const adjacency = idx.aggregateAdjacency || new Map();
-        const direct = adjacency.get(selected.id) || new Set();
-        const visited = new Set([selected.id, ...direct]);
-        direct.forEach((deviceId) => markElement(graph.getCell(deviceId)));
-        const links = idx.aggregateLinks || new Set();
-        links.forEach((link) => {
-            const sourceId = link.get('source') && link.get('source').id;
-            const targetId = link.get('target') && link.get('target').id;
-            const isDirect = (sourceId === selected.id && visited.has(targetId)) ||
-                (targetId === selected.id && visited.has(sourceId));
-            if (isDirect) {
-                markLink(link);
+        const childIds = idx.childrenByDevice ? idx.childrenByDevice.get(selected.id) : null;
+        const gaSet = new Set();
+        if (childIds) {
+            childIds.forEach((childId) => {
+                const child = graph.getCell(childId);
+                if (!child) return;
+                const peerCount = Number(child.get('gaPeerCount') || 0);
+                if (peerCount > 1) {
+                    const ga = child.get('groupAddress');
+                    if (ga) gaSet.add(ga);
+                }
+            });
+        }
+
+        if (gaSet.size) {
+            const deviceIds = new Set([selected.id]);
+            if (idx.devicesByGa) {
+                gaSet.forEach((ga) => {
+                    const ids = idx.devicesByGa.get(ga);
+                    if (ids) {
+                        ids.forEach((deviceId) => deviceIds.add(deviceId));
+                    }
+                });
             }
-        });
+            deviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+            const links = idx.aggregateLinks || new Set();
+            links.forEach((link) => {
+                const sourceId = link.get('source') && link.get('source').id;
+                const targetId = link.get('target') && link.get('target').id;
+                if (deviceIds.has(sourceId) && deviceIds.has(targetId)) {
+                    markLink(link);
+                }
+            });
+        } else {
+            const adjacency = idx.aggregateAdjacency || new Map();
+            const direct = adjacency.get(selected.id) || new Set();
+            const visited = new Set([selected.id, ...direct]);
+            direct.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+            const links = idx.aggregateLinks || new Set();
+            links.forEach((link) => {
+                const sourceId = link.get('source') && link.get('source').id;
+                const targetId = link.get('target') && link.get('target').id;
+                const isDirect = (sourceId === selected.id && visited.has(targetId)) ||
+                    (targetId === selected.id && visited.has(sourceId));
+                if (isDirect) {
+                    markLink(link);
+                }
+            });
+        }
         return;
     }
 
@@ -356,7 +395,7 @@ export function applySelectionStyles() {
                     markElement(child, { suppressTitle: true });
                     const ga = child.get('groupAddress');
                     if (ga) gaSet.add(ga);
-                } else {
+                } else if (!dimViaCss) {
                     applyDimStyle(child, theme);
                 }
                 const links = idx.linksByEndpoint ? idx.linksByEndpoint.get(childId) : null;
@@ -371,6 +410,30 @@ export function applySelectionStyles() {
                         links.forEach((link) => markLink(link));
                     }
                 });
+                if (idx.devicesByGa) {
+                    gaSet.forEach((ga) => {
+                        const deviceIds = idx.devicesByGa.get(ga);
+                        if (deviceIds) {
+                            deviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+                        }
+                    });
+                }
+                if (idx.groupObjectsByGa) {
+                    const extraDeviceIds = new Set();
+                    gaSet.forEach((ga) => {
+                        const objects = idx.groupObjectsByGa.get(ga);
+                        if (objects) {
+                            objects.forEach((obj) => {
+                                markElement(obj, { suppressTitle: true });
+                                const parentId = obj.get('parent') || obj.get('expectedParent');
+                                if (parentId) extraDeviceIds.add(parentId);
+                            });
+                        }
+                    });
+                    if (extraDeviceIds.size) {
+                        extraDeviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+                    }
+                }
             }
         }
         highlightFramesByRefs(graph, theme, highlightRefs);
@@ -401,6 +464,9 @@ export function applySelectionStyles() {
 }
 
 function resetHighlights(theme) {
+    setGraphDim(false);
+    highlightedElements.forEach((element) => setViewHighlight(element, false));
+    highlightedLinks.forEach((link) => setViewHighlight(link, false));
     highlightedElements.forEach((element) => applyElementStyle(element, theme, false));
     highlightedLinks.forEach((link) => applyLinkStyle(link, theme, false));
     highlightedElements.clear();
@@ -486,7 +552,20 @@ function applyDimStyle(element, theme) {
     dimmedElements.add(element);
 }
 
-function highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink) {
+function setGraphDim(enabled) {
+    const paperEl = state.paper ? state.paper.el : null;
+    if (!paperEl) return;
+    paperEl.classList.toggle('dim-unselected', enabled);
+}
+
+function setViewHighlight(model, enabled) {
+    if (!state.paper || !model || !state.paper.findViewByModel) return;
+    const view = state.paper.findViewByModel(model);
+    if (!view || !view.el) return;
+    view.el.classList.toggle('is-highlighted', enabled);
+}
+
+function highlightGroupAddress(ga, selected, idx, graph, theme, markElement, markLink, dimViaCss) {
     if (!ga) {
         markElement(selected);
         return;
@@ -494,8 +573,13 @@ function highlightGroupAddress(ga, selected, idx, graph, theme, markElement, mar
     const selectedProps = selected && selected.get ? (selected.get('nodeProps') || {}) : {};
     const selectedRef = selectedProps.com_object_ref_id ? String(selectedProps.com_object_ref_id) : '';
     const objects = idx.groupObjectsByGa ? idx.groupObjectsByGa.get(ga) : null;
+    const fallbackDeviceIds = new Set();
     if (objects) {
-        objects.forEach((obj) => markElement(obj));
+        objects.forEach((obj) => {
+            markElement(obj);
+            const parentId = obj.get('parent') || obj.get('expectedParent');
+            if (parentId) fallbackDeviceIds.add(parentId);
+        });
     } else {
         markElement(selected);
     }
@@ -503,12 +587,15 @@ function highlightGroupAddress(ga, selected, idx, graph, theme, markElement, mar
     if (deviceIds) {
         deviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
     }
+    if (fallbackDeviceIds.size) {
+        fallbackDeviceIds.forEach((deviceId) => markElement(graph.getCell(deviceId)));
+    }
     const links = idx.linksByGa ? idx.linksByGa.get(ga) : null;
     if (links) {
         links.forEach((link) => markLink(link));
     }
 
-    if (state.currentView === 'group' && !state.groupSummaryMode && idx.allGroupObjects) {
+    if (state.currentView === 'group' && !state.groupSummaryMode && idx.allGroupObjects && !dimViaCss && !state.isLargeGraph) {
         idx.allGroupObjects.forEach((obj) => {
             if (!obj) return;
             const objGa = obj.get('groupAddress');
@@ -535,8 +622,6 @@ function highlightFramesByRefs(graph, theme, refs) {
 
 export function rebuildSelectionIndex() {
     const { graph } = state;
-    highlightedElements.clear();
-    highlightedLinks.clear();
     if (!graph) {
         stateManager.setState('selectionIndex', null);
         return;

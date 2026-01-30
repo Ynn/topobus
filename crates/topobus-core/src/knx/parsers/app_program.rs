@@ -51,7 +51,7 @@ pub(crate) fn load_app_program<R: Read + Seek>(
     let com_object_refs = parse_com_object_refs(&doc, &prefix, &translations);
     let parameter_types = parse_parameter_types(&doc, &prefix, &translations);
     let parameter_refs = parse_parameter_refs(&doc, &prefix, &translations);
-    let parameter_ref_context = parse_parameter_ref_context(&doc, &prefix);
+    let parameter_ref_context = parse_parameter_ref_context(&doc, &prefix, &translations);
     let parameters = parse_parameter_definitions(&doc, &prefix, &translations);
 
     let mut allocators = HashMap::new();

@@ -171,15 +171,16 @@ export function layoutGroupView(nodes, elementsById, options = {}) {
             gaps;
     };
 
+    const maxDeviceWidth = Math.max(settings.deviceMinWidth, Math.floor(width - sideGap * 2));
     const layouts = deviceNodes.map(node => {
         const children = childrenByParent.get(node.id) || [];
-        const deviceWidth = computeGroupDeviceWidth(node, children, settings);
+        const deviceWidth = computeGroupDeviceWidth(node, children, settings, maxDeviceWidth);
         const height = computeDeviceHeight(children);
         return { node, children, width: deviceWidth, height };
     });
 
-    const maxDeviceWidth = layouts.reduce((max, item) => Math.max(max, item.width), settings.deviceMinWidth);
-    const columns = Math.max(1, Math.floor(width / (maxDeviceWidth + settings.columnGap)));
+    const widestDevice = layouts.reduce((max, item) => Math.max(max, item.width), settings.deviceMinWidth);
+    const columns = Math.max(1, Math.floor(width / (widestDevice + settings.columnGap)));
     const columnHeights = new Array(columns).fill(settings.topGap);
 
     layouts.forEach(layout => {
@@ -1205,7 +1206,7 @@ export function layoutTopologyView(nodes, elementsById) {
     });
 }
 
-export function computeGroupDeviceWidth(node, children, settings) {
+export function computeGroupDeviceWidth(node, children, settings, maxWidth) {
     if (state.isLargeGraph) {
         return settings.deviceMinWidth;
     }
@@ -1215,7 +1216,12 @@ export function computeGroupDeviceWidth(node, children, settings) {
     const addressFont = `700 ${settings.headerFont.address}px ${theme.fontSans}`;
     const nameFont = `600 ${settings.headerFont.name}px ${theme.fontSans}`;
 
-    const cacheKey = `${node.id || name}|${children.length}|${settings.scale}`;
+    const widthCap = Number.isFinite(maxWidth)
+        ? Math.max(settings.deviceMinWidth, Math.floor(maxWidth))
+        : (settings.deviceMaxWidth
+            ? Math.max(settings.deviceMinWidth, settings.deviceMaxWidth)
+            : null);
+    const cacheKey = `${node.id || name}|${children.length}|${settings.scale}|${widthCap || 'nocap'}`;
     const cached = groupWidthCache.get(cacheKey);
     if (cached) return cached;
 
@@ -1238,8 +1244,7 @@ export function computeGroupDeviceWidth(node, children, settings) {
     });
 
     const minWidth = Math.max(width, settings.deviceMinWidth);
-    const maxWidth = settings.deviceMaxWidth ? Math.max(settings.deviceMinWidth, settings.deviceMaxWidth) : minWidth;
-    const finalWidth = Math.min(minWidth, maxWidth);
+    const finalWidth = widthCap ? Math.min(minWidth, widthCap) : minWidth;
     groupWidthCache.set(cacheKey, finalWidth);
     return finalWidth;
 }

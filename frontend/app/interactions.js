@@ -218,6 +218,40 @@ export function bindInteractions() {
 
 }
 
+export function unbindInteractions() {
+    const dom = getDom();
+    if (state.paper && typeof state.paper.off === 'function') {
+        state.paper.off();
+    }
+    if (dom && dom.paper) {
+        if (state.wheelHandler) {
+            dom.paper.removeEventListener('wheel', state.wheelHandler);
+        }
+        if (state.middlePanHandler) {
+            dom.paper.removeEventListener('mousedown', state.middlePanHandler, true);
+        }
+        if (state.pointerHandlers) {
+            dom.paper.removeEventListener('pointerdown', state.pointerHandlers.down);
+            dom.paper.removeEventListener('pointermove', state.pointerHandlers.move);
+            dom.paper.removeEventListener('pointerup', state.pointerHandlers.up);
+            dom.paper.removeEventListener('pointercancel', state.pointerHandlers.up);
+        }
+        if (state.dragIntentHandlers) {
+            dom.paper.removeEventListener('pointerdown', state.dragIntentHandlers.down, true);
+            dom.paper.removeEventListener('pointerup', state.dragIntentHandlers.up, true);
+            dom.paper.removeEventListener('pointercancel', state.dragIntentHandlers.up, true);
+        }
+    }
+    stateManager.setStatePatch({
+        wheelHandler: null,
+        middlePanHandler: null,
+        pointerHandlers: null,
+        dragIntentHandlers: null,
+        panState: null,
+        interactionsBound: false
+    });
+}
+
 function openGraphContextMenu(cell, x, y) {
     initContextMenu();
     const entity = normalizeFromGraphCell(cell, state);

@@ -72,6 +72,22 @@
     touch-action: none;
 }
 
+/* Graph dimming (CSS-based for large graphs) */
+#paper.dim-unselected .joint-element,
+#paper.dim-unselected .joint-link {
+    opacity: 0.18;
+}
+
+#paper.dim-unselected .joint-element.is-highlighted,
+#paper.dim-unselected .joint-link.is-highlighted {
+    opacity: 1;
+}
+
+#paper.dim-unselected .joint-link:not(.is-highlighted) {
+    opacity: 0;
+    pointer-events: none;
+}
+
 /* Minimap */
 #minimap-wrap {
     position: absolute;

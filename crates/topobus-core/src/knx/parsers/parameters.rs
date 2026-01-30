@@ -78,9 +78,10 @@ pub(crate) fn parse_parameter_types(
                 if value.is_empty() {
                     continue;
                 }
-                let text = entry.attribute("Text").unwrap_or("").trim();
-                if !text.is_empty() {
-                    enum_values.insert(value.to_string(), text.to_string());
+                let text = attr_value_localized(&entry, "Text", translations, prefix).unwrap_or_default();
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    enum_values.insert(value.to_string(), trimmed.to_string());
                 }
             }
             def.enum_values = enum_values;
@@ -140,6 +141,7 @@ pub(crate) fn parse_parameter_refs(
 pub(crate) fn parse_parameter_ref_context(
     doc: &Document,
     prefix: &str,
+    translations: &HashMap<String, HashMap<String, String>>,
 ) -> HashMap<String, String> {
     let mut contexts = HashMap::new();
     for node in doc
@@ -150,29 +152,43 @@ pub(crate) fn parse_parameter_ref_context(
             Some(id) => id,
             None => continue,
         };
-        if let Some(context) = build_context_path(&node) {
+        if let Some(context) = build_context_path(&node, translations, prefix) {
             contexts.insert(strip_prefix(ref_id, prefix), context);
         }
     }
     contexts
 }
 
-fn build_context_path(node: &Node<'_, '_>) -> Option<String> {
+fn build_context_path(
+    node: &Node<'_, '_>,
+    translations: &HashMap<String, HashMap<String, String>>,
+    prefix: &str,
+) -> Option<String> {
     let mut parts = Vec::new();
     for ancestor in node.ancestors() {
         match ancestor.tag_name().name() {
             xml_tags::CHANNEL => {
-                if let Some(name) = attr_value(&ancestor, "Name").or_else(|| attr_value(&ancestor, "Text")) {
+                if let Some(name) = attr_value_localized(&ancestor, "Name", translations, prefix)
+                    .or_else(|| attr_value_localized(&ancestor, "Text", translations, prefix))
+                    .or_else(|| attr_value(&ancestor, "Name"))
+                    .or_else(|| attr_value(&ancestor, "Text"))
+                {
                     parts.push(format!("Channel: {}", name));
                 }
             }
             xml_tags::PARAMETER_BLOCK => {
-                if let Some(name) = attr_value(&ancestor, "Name") {
+                if let Some(name) = attr_value_localized(&ancestor, "Name", translations, prefix)
+                    .or_else(|| attr_value(&ancestor, "Name"))
+                {
                     parts.push(format!("Block: {}", name));
                 }
             }
             xml_tags::MODULE => {
-                if let Some(name) = attr_value(&ancestor, "Name").or_else(|| attr_value(&ancestor, "Text")) {
+                if let Some(name) = attr_value_localized(&ancestor, "Name", translations, prefix)
+                    .or_else(|| attr_value_localized(&ancestor, "Text", translations, prefix))
+                    .or_else(|| attr_value(&ancestor, "Name"))
+                    .or_else(|| attr_value(&ancestor, "Text"))
+                {
                     parts.push(format!("Module: {}", name));
                 }
             }

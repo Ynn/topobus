@@ -73,7 +73,6 @@ export function applyFiltersAndRender(options = {}) {
     const graphVisible = dom && dom.graphView && dom.graphView.style.display !== 'none';
     if (!graphVisible) return;
     const filtered = filterProject(state.currentProject, state.filters);
-    stateManager.setState('filteredProject', filtered);
     const viewType = resolveGraphViewType(state.currentView);
     const renderKey = buildGraphRenderKey(viewType);
     if (!force && state.graph && state.lastGraphKey === renderKey && state.lastGraphViewType === viewType) {

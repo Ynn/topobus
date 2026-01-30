@@ -122,6 +122,25 @@ export function updateMinimap() {
     ctx.strokeRect(vx, vy, vw, vh);
 }
 
+export function resetMinimap() {
+    if (state.minimapFrame) {
+        cancelAnimationFrame(state.minimapFrame);
+        stateManager.setState('minimapFrame', null);
+    }
+    if (state.minimapTimeout) {
+        clearTimeout(state.minimapTimeout);
+        stateManager.setState('minimapTimeout', null);
+    }
+    stateManager.setState('minimapState', null);
+    const dom = getDom();
+    if (dom && dom.minimap) {
+        const ctx = dom.minimap.getContext('2d');
+        if (ctx) {
+            ctx.clearRect(0, 0, dom.minimap.width, dom.minimap.height);
+        }
+    }
+}
+
 function computeGraphBounds(elements) {
     let minX = Infinity;
     let minY = Infinity;

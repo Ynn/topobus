@@ -64,10 +64,15 @@ pub(crate) fn parse_com_object_refs(
             None => continue,
         };
 
-        let channel_name = obj
-            .parent()
-            .filter(|n| n.tag_name().name() == xml_tags::CHANNEL || n.tag_name().name() == xml_tags::MODULE)
-            .and_then(|n| attr_value(&n, "Text").or_else(|| attr_value(&n, "Name")));
+        let channel_node = obj
+            .ancestors()
+            .find(|n| n.tag_name().name() == xml_tags::CHANNEL || n.tag_name().name() == xml_tags::MODULE);
+        let channel_name = channel_node.and_then(|node| {
+            attr_value_localized(&node, "Text", translations, prefix)
+                .or_else(|| attr_value_localized(&node, "Name", translations, prefix))
+                .or_else(|| attr_value(&node, "Text"))
+                .or_else(|| attr_value(&node, "Name"))
+        });
 
         let def = ComObjectRefDef {
             function_text: attr_value_localized(&obj, "FunctionText", translations, prefix),
@@ -131,12 +136,12 @@ pub(crate) fn resolve_object_name(
         .filter(|value| !value.trim().is_empty())
         .or_else(|| {
             com_def
-                .and_then(|def| def.name.as_deref())
+                .and_then(|def| def.text.as_deref())
                 .filter(|value| !value.trim().is_empty())
         })
         .or_else(|| {
             com_def
-                .and_then(|def| def.text.as_deref())
+                .and_then(|def| def.name.as_deref())
                 .filter(|value| !value.trim().is_empty())
         })
         .or_else(|| {
@@ -146,12 +151,12 @@ pub(crate) fn resolve_object_name(
         })
         .or_else(|| {
             com_obj
-                .and_then(|def| def.name.as_deref())
+                .and_then(|def| def.text.as_deref())
                 .filter(|value| !value.trim().is_empty())
         })
         .or_else(|| {
             com_obj
-                .and_then(|def| def.text.as_deref())
+                .and_then(|def| def.name.as_deref())
                 .filter(|value| !value.trim().is_empty())
         })?;
     resolve_template(Some(base), arg_values)

@@ -6,6 +6,7 @@ import { parseKnxprojFile } from './parser.js';
 import { updateClassicView } from './classic_view.js';
 import { ApiError, NetworkError } from './utils/api_client.js';
 import { stateManager } from './state_manager.js';
+import { prepareForProjectLoad } from './project_cleanup.js';
 
 export function setupUploadHandlers() {
     const dom = getDom();
@@ -109,6 +110,7 @@ async function uploadFile(file) {
     if (dom.uploadZone) dom.uploadZone.classList.add('hidden');
     if (dom.loadingMessage) dom.loadingMessage.textContent = 'Loading project...';
     if (dom.loading) dom.loading.classList.remove('hidden');
+    prepareForProjectLoad();
 
     try {
         // Reset password input if not needed

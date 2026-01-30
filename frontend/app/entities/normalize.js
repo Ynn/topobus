@@ -126,6 +126,13 @@ function buildGroupAddressFallbackMap(project) {
 
 const fallbackCache = { project: null, map: new Map() };
 
+export function resetEntityCaches() {
+    buildingLookupCache.project = null;
+    buildingLookupCache.map = new Map();
+    fallbackCache.project = null;
+    fallbackCache.map = new Map();
+}
+
 function resolveGroupAddressFallback(state, address) {
     const project = state && state.currentProject;
     if (!project || !address) return null;

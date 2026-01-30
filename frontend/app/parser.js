@@ -1,6 +1,6 @@
-import { initWasm, parseKnxprojBytes } from './wasm.js';
 import { state } from './state.js';
 import { ApiClient } from './utils/api_client.js';
+import { parseKnxprojBytesWithWorker } from './wasm_worker_client.js';
 
 export async function parseKnxprojFile(file, password) {
     const wasmData = await tryParseWithWasm(file, password);
@@ -11,16 +11,12 @@ export async function parseKnxprojFile(file, password) {
 }
 
 async function tryParseWithWasm(file, password) {
-    const ready = await initWasm();
-    if (!ready) return null;
-
     const buffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
     try {
         const preferredLanguage = state.uiSettings && state.uiSettings.productLanguage
             ? String(state.uiSettings.productLanguage)
             : undefined;
-        return parseKnxprojBytes(bytes, password, preferredLanguage);
+        return await parseKnxprojBytesWithWorker(buffer, password, preferredLanguage);
     } catch (error) {
         if (isPasswordError(error)) {
             throw error;

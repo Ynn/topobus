@@ -24,6 +24,30 @@ stateManager.subscribe('currentProject', () => {
     }
 });
 
+export function disposeGraph() {
+    const dom = getDom();
+    if (state.paper) {
+        if (state.paper.undelegateEvents) {
+            state.paper.undelegateEvents();
+        }
+        if (state.paper.stopListening) {
+            state.paper.stopListening();
+        }
+        stateManager.setState('paper', null);
+    }
+    if (state.graph) {
+        if (state.graph.clear) {
+            state.graph.clear();
+        } else if (state.graph.resetCells) {
+            state.graph.resetCells([]);
+        }
+        stateManager.setState('graph', null);
+    }
+    if (dom && dom.paper) {
+        dom.paper.innerHTML = '';
+    }
+}
+
 export function renderGraph(projectData, viewType) {
     const resetView = state.graphResetView === true;
     stateManager.setState('graphResetView', false);
