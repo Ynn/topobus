@@ -24,6 +24,15 @@ impl Flags {
         }
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.communication.is_none()
+            && self.read.is_none()
+            && self.write.is_none()
+            && self.transmit.is_none()
+            && self.update.is_none()
+            && self.read_on_init.is_none()
+    }
+
     pub(crate) fn with_fallback(self, fallback: Flags) -> Flags {
         Flags {
             communication: self.communication.or(fallback.communication),
@@ -43,6 +52,14 @@ impl Flags {
             transmit: self.transmit.unwrap_or(false),
             update: self.update.unwrap_or(false),
             read_on_init: self.read_on_init.unwrap_or(false),
+        }
+    }
+
+    pub(crate) fn to_model_flags_opt(&self) -> Option<ObjectFlags> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.to_model_flags())
         }
     }
 }

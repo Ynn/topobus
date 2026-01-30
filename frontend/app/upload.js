@@ -57,7 +57,7 @@ export function setupUploadHandlers() {
         dom.uploadZone.classList.remove('dragover');
         dragDepth = 0;
         const file = e.dataTransfer.files[0];
-        if (file && file.name.endsWith('.knxproj')) {
+        if (file && isKnxprojFilename(file.name)) {
             hidePasswordPrompt();
             uploadFile(file);
         } else {
@@ -69,7 +69,13 @@ export function setupUploadHandlers() {
         const file = e.target.files[0];
         if (file) {
             hidePasswordPrompt();
+            if (!isKnxprojFilename(file.name)) {
+                setUploadError('Please provide a .knxproj file');
+                e.target.value = '';
+                return;
+            }
             uploadFile(file);
+            e.target.value = '';
         }
     });
 }
@@ -203,6 +209,11 @@ function setUploadError(message) {
         dom.uploadZone.appendChild(errorBox);
     }
     errorBox.textContent = message;
+}
+
+function isKnxprojFilename(name) {
+    if (!name) return false;
+    return String(name).toLowerCase().endsWith('.knxproj');
 }
 
 function buildGroupAddressIndex(project) {

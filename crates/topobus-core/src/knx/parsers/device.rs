@@ -368,7 +368,7 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                     security: link_security.clone(),
                     building_function: link_building_function.clone(),
                     building_part: link_building_part.clone(),
-                    flags: Some(com_flags.to_model_flags()),
+                    flags: com_flags.to_model_flags_opt(),
                 });
             }
         }

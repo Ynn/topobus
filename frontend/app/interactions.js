@@ -381,10 +381,13 @@ export function updateZoomLOD() {
     const { paper } = state;
     if (!paper) return;
     const { sx } = paper.scale();
-    if (sx < 0.35) {
+    const zoomFar = paper.el.classList.contains('zoom-far');
+    if (zoomFar) {
+        if (sx > 0.45) {
+            paper.el.classList.remove('zoom-far');
+        }
+    } else if (sx < 0.35) {
         paper.el.classList.add('zoom-far');
-    } else {
-        paper.el.classList.remove('zoom-far');
     }
     updateGroupSummaryLOD(sx);
     updateGroupHierarchySummaryLOD(sx);

@@ -267,6 +267,18 @@ body {
     display: none !important;
 }
 
+.visually-hidden {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .upload-zone {
     position: fixed;
     inset: 0;
@@ -622,11 +634,17 @@ body {
     cursor: col-resize;
     z-index: 100;
     transition: background 0.2s;
+    touch-action: none;
 }
 
 .resizer:hover,
 .resizer.active {
     background: var(--primary-blue);
+}
+
+.is-resizing .sidebar,
+.is-resizing .properties-sidebar {
+    transition: none !important;
 }
 
 /* Floating reopen buttons */
@@ -1968,4 +1986,118 @@ tr.table-spacer td {
 .theme-mocha #loading {
     background: rgba(17, 17, 27, 0.86);
     color: var(--ctp-text);
+}
+
+@media (max-width: 1024px) {
+    .tabs-bar {
+        flex-wrap: wrap;
+        padding: 6px 8px;
+        gap: 8px;
+    }
+
+    .brand {
+        flex: 1 1 100%;
+        min-width: 0;
+        padding: 6px 8px;
+    }
+
+    .tab-container {
+        flex: 1 1 100%;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .tab {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    .search-container {
+        flex: 1 1 100%;
+        width: 100%;
+        margin: 4px 0 6px;
+    }
+
+    .search-input {
+        flex: 1;
+        min-width: 0;
+    }
+}
+
+@media (max-width: 900px) {
+    .main-layout {
+        position: relative;
+    }
+
+    .sidebar,
+    .properties-sidebar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        z-index: 50;
+        margin: 10px;
+        width: min(85vw, 340px) !important;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .sidebar {
+        left: 0;
+    }
+
+    .properties-sidebar {
+        right: 0;
+    }
+
+    .sidebar.collapsed {
+        transform: translateX(-120%);
+        margin-left: 0;
+    }
+
+    .properties-sidebar.collapsed {
+        transform: translateX(120%);
+        margin-right: 0;
+    }
+
+    #left-resizer,
+    #right-resizer {
+        display: none !important;
+    }
+
+    .content-area {
+        margin: 10px;
+    }
+
+    .panel-reopen-btn {
+        top: auto;
+        bottom: 16px;
+    }
+}
+
+@media (max-width: 600px) {
+    .tab {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    .content-tab {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    .graph-toolbar {
+        right: 8px;
+        top: 8px;
+        flex-wrap: wrap;
+    }
+
+    #minimap-wrap {
+        width: 160px;
+        right: 8px;
+        bottom: 8px;
+    }
+
+    .sidebar,
+    .properties-sidebar {
+        width: min(90vw, 320px) !important;
+    }
 }

@@ -153,12 +153,20 @@ function normalizeGroupAddressFromProps(state, props, nameFallback, addressFallb
     const info = resolveGroupAddressInfo(state, address);
     const linkedDevices = [];
     if (info && Array.isArray(info.linked_devices)) {
+        const unique = new Map();
         info.linked_devices.forEach((deviceAddress) => {
-            const device = state && state.deviceIndex ? state.deviceIndex.get(deviceAddress) : null;
-            linkedDevices.push({
-                address: deviceAddress,
-                name: device && device.name ? device.name : ''
-            });
+            const normalized = String(deviceAddress || '').trim();
+            if (!normalized) return;
+            const device = state && state.deviceIndex ? state.deviceIndex.get(normalized) : null;
+            const name = device && device.name ? device.name : '';
+            if (!unique.has(normalized)) {
+                unique.set(normalized, name);
+            } else if (!unique.get(normalized) && name) {
+                unique.set(normalized, name);
+            }
+        });
+        unique.forEach((name, addr) => {
+            linkedDevices.push({ address: addr, name: name || '' });
         });
     }
     return {

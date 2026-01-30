@@ -3,13 +3,14 @@ import { state } from './state.js';
 import { applyFiltersAndRender } from './filters.js';
 import { formatDeviceName, measureTextWidth } from './utils.js';
 import { selectCell, highlightCell, registerSelectionListener } from './selection.js';
-import { focusCell, fitContent, exportSvg, ensureDeviceVisible } from './interactions.js';
+import { focusCell, fitContent, exportSvg, ensureDeviceVisible, syncPaperToContent } from './interactions.js';
 import { setSelectionFromTable, setSelectionFromTree } from './selection_store.js';
 import { ICON } from './ui/icons.js';
 import { formatDptLabel, resolveDptSize } from './formatters/device.js';
 import { stateManager } from './state_manager.js';
 import { initContextMenu, openContextMenu, copyTextToClipboard, openWebSearch } from './context_menu.js';
 import { onNavigate, requestNavigation } from './navigation.js';
+import { scheduleMinimap } from './minimap.js';
 
 // View metadata and table layouts.
 const viewConstants = {
@@ -73,6 +74,9 @@ const TABLE_OVERSCAN = 12;
 const TABLE_COLUMN_MIN_WIDTH = 28;
 let tableVisibleStart = 0;
 let tableVisibleEnd = 0;
+let graphResizeTimer = null;
+let autoCollapsedPanels = { left: false, right: false };
+let windowResizeBound = false;
 
 function ensureInitialColumnWidths(sampleRow) {
     if (tableColumnWidths.size) return;
@@ -143,7 +147,10 @@ export function initClassicView() {
         if (tab && tab.dataset.viewType) {
             switchViewType(tab.dataset.viewType);
         } else if (tab && tab.id === 'btn-open-project') {
-            dom.fileInput.click();
+            if (dom.fileInput) {
+                dom.fileInput.value = '';
+                dom.fileInput.click();
+            }
         }
     });
 
@@ -177,6 +184,11 @@ export function initClassicView() {
     setupSelectionLinking();
 
     initializeResizers();
+    initializeResponsiveLayout();
+    if (!windowResizeBound) {
+        window.addEventListener('resize', scheduleGraphResize);
+        windowResizeBound = true;
+    }
     initializeTableSorting();
     initContextMenu();
     registerNavigationHandlers();
@@ -2634,6 +2646,10 @@ function toggleSidebar() {
 
     const btn = dom.sidebar.querySelector('.panel-toggle-btn');
     if (btn) btn.textContent = isCollapsed ? ICON.chevronRight : ICON.chevronLeft;
+    if (window.matchMedia('(max-width: 900px)').matches) {
+        autoCollapsedPanels.left = false;
+    }
+    scheduleGraphResize();
 }
 
 function toggleGraphFullscreen() {
@@ -2667,6 +2683,22 @@ function updateFullscreenButton(enabled) {
     }
 }
 
+function scheduleGraphResize() {
+    const dom = getDom();
+    if (!dom || !dom.graphView || dom.graphView.style.display === 'none') return;
+    if (graphResizeTimer) {
+        clearTimeout(graphResizeTimer);
+    }
+    requestAnimationFrame(() => {
+        syncPaperToContent({ resetView: false });
+        scheduleMinimap();
+    });
+    graphResizeTimer = setTimeout(() => {
+        syncPaperToContent({ resetView: false });
+        scheduleMinimap();
+    }, 260);
+}
+
 function toggleProperties() {
     const dom = getDom();
     if (!dom || !dom.propertiesSidebar) return;
@@ -2688,6 +2720,10 @@ function toggleProperties() {
 
     const btn = dom.propertiesSidebar.querySelector('.panel-toggle-btn');
     if (btn) btn.textContent = isCollapsed ? ICON.chevronLeft : ICON.chevronRight;
+    if (window.matchMedia('(max-width: 900px)').matches) {
+        autoCollapsedPanels.right = false;
+    }
+    scheduleGraphResize();
 }
 
 function initializeResizers() {
@@ -2701,39 +2737,138 @@ function initializeResizers() {
     setupResizer(dom.rightResizer, dom.propertiesSidebar, false);
 }
 
+function initializeResponsiveLayout() {
+    const dom = getDom();
+    if (!dom || !dom.sidebar || !dom.propertiesSidebar) return;
+    const media = window.matchMedia('(max-width: 900px)');
+
+    const sync = () => {
+        const isNarrow = media.matches;
+        if (isNarrow) {
+            if (!dom.sidebar.classList.contains('collapsed')) {
+                toggleSidebar();
+                autoCollapsedPanels.left = true;
+            }
+            if (!dom.propertiesSidebar.classList.contains('collapsed')) {
+                toggleProperties();
+                autoCollapsedPanels.right = true;
+            }
+            return;
+        }
+
+        if (autoCollapsedPanels.left && dom.sidebar.classList.contains('collapsed')) {
+            toggleSidebar();
+        }
+        if (autoCollapsedPanels.right && dom.propertiesSidebar.classList.contains('collapsed')) {
+            toggleProperties();
+        }
+        autoCollapsedPanels = { left: false, right: false };
+    };
+
+    sync();
+    if (typeof media.addEventListener === 'function') {
+        media.addEventListener('change', sync);
+    } else if (typeof media.addListener === 'function') {
+        media.addListener(sync);
+    }
+}
+
 function setupResizer(resizer, panel, isLeft) {
     if (!resizer || !panel) return;
-    resizer.addEventListener('mousedown', (e) => {
-        e.preventDefault();
+    let dragging = false;
+    let startX = 0;
+    let startWidth = 0;
+    let pendingWidth = null;
+    let rafId = null;
+    let usePointer = false;
+
+    const minWidth = 150;
+    const maxWidth = isLeft ? 600 : Number.POSITIVE_INFINITY;
+
+    const applyWidth = () => {
+        rafId = null;
+        if (pendingWidth == null) return;
+        panel.style.width = `${pendingWidth}px`;
+        panel.dataset.lastWidth = String(pendingWidth);
+        pendingWidth = null;
+    };
+
+    const computeWidth = (clientX) => {
+        let newWidth;
+        if (isLeft) {
+            newWidth = startWidth + (clientX - startX);
+        } else {
+            newWidth = startWidth - (clientX - startX);
+        }
+        if (newWidth <= minWidth || newWidth >= maxWidth) return null;
+        return Math.round(newWidth);
+    };
+
+    const onMove = (ev) => {
+        if (!dragging) return;
+        const next = computeWidth(ev.clientX);
+        if (next == null) return;
+        pendingWidth = next;
+        if (!rafId) {
+            rafId = requestAnimationFrame(applyWidth);
+        }
+        ev.preventDefault();
+    };
+
+    const endDrag = () => {
+        if (!dragging) return;
+        dragging = false;
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        applyWidth();
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.body.classList.remove('is-resizing');
+        resizer.classList.remove('active');
+        if (usePointer) {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', endDrag);
+            window.removeEventListener('pointercancel', endDrag);
+        } else {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', endDrag);
+        }
+        usePointer = false;
+        scheduleGraphResize();
+    };
+
+    const startDrag = (ev) => {
+        if (dragging) return;
+        if (ev.button != null && ev.button !== 0) return;
+        dragging = true;
+        startX = ev.clientX;
+        startWidth = panel.offsetWidth;
         document.body.style.cursor = 'col-resize';
-
-        const startX = e.clientX;
-        const startWidth = panel.offsetWidth;
-
-        const onMouseMove = (ev) => {
-            let newWidth;
-            if (isLeft) {
-                newWidth = startWidth + (ev.clientX - startX);
-            } else {
-                newWidth = startWidth - (ev.clientX - startX);
+        document.body.style.userSelect = 'none';
+        document.body.classList.add('is-resizing');
+        resizer.classList.add('active');
+        usePointer = ev.type === 'pointerdown' && ev.pointerId != null;
+        if (usePointer) {
+            if (resizer.setPointerCapture) {
+                resizer.setPointerCapture(ev.pointerId);
             }
-            const minWidth = 150;
-            const maxWidth = isLeft ? 600 : Number.POSITIVE_INFINITY;
-            if (newWidth > minWidth && newWidth < maxWidth) {
-                panel.style.width = `${newWidth}px`;
-                panel.dataset.lastWidth = String(newWidth);
-            }
-        };
+            window.addEventListener('pointermove', onMove, { passive: false });
+            window.addEventListener('pointerup', endDrag);
+            window.addEventListener('pointercancel', endDrag);
+        } else {
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', endDrag);
+        }
+        ev.preventDefault();
+    };
 
-        const onMouseUp = () => {
-            document.body.style.cursor = '';
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-        };
-
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-    });
+    if (window.PointerEvent) {
+        resizer.addEventListener('pointerdown', startDrag, { passive: false });
+    } else {
+        resizer.addEventListener('mousedown', startDrag);
+    }
 }
 
 function initializeTableSorting() {

@@ -39,7 +39,6 @@
             </svg>
             <h2>Drop your .knxproj file</h2>
             <p>or <label for="file-input" class="file-label">browse your computer</label></p>
-            <input type="file" id="file-input" accept=".knxproj" style="display: none;">
             <div class="password-row hidden" id="password-row">
                 <form id="password-form" novalidate>
                     <label for="password-input">Project password (Decryption is local; no password is sent over the network.)</label>
@@ -52,6 +51,7 @@
             </div>
         </div>
     </div>
+    <input type="file" id="file-input" accept=".knxproj" class="visually-hidden">
 
     <div class="window" id="app-window">
         <!-- Top Tabs Bar (Views) -->
