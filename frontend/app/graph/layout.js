@@ -628,11 +628,14 @@ function applyComponentLayout(layouts, edges, availableWidth, settings) {
     const components = buildConnectedComponents(layouts, edges);
     if (!components.length) return;
 
-    components.forEach((component) => {
-        if (component.edges.length) {
-            optimizeGroupAngles(component.layouts, component.edges, settings);
-        }
-    });
+    const allowAngleOptimization = !state.groupSummaryMode;
+    if (allowAngleOptimization) {
+        components.forEach((component) => {
+            if (component.edges.length) {
+                optimizeGroupAngles(component.layouts, component.edges, settings);
+            }
+        });
+    }
 
     const elk = state.elkSettings || {};
     const gapHint = Number(elk.componentGap || elk.spacingLayer || 0);
@@ -873,6 +876,17 @@ export function alignGroupLinks(cell) {
         links = Array.from(linkSet);
     } else {
         links = graph.getLinks();
+    }
+    if (state.groupSummaryMode) {
+        links.forEach((link) => {
+            const sourceId = link.get('source') && link.get('source').id;
+            const targetId = link.get('target') && link.get('target').id;
+            if (!sourceId || !targetId) return;
+            link.source({ id: sourceId, anchor: { name: 'center' } });
+            link.target({ id: targetId, anchor: { name: 'center' } });
+            link.vertices([]);
+        });
+        return;
     }
     links.forEach(link => {
         const sourceId = link.get('source') && link.get('source').id;
