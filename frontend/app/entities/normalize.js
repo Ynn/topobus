@@ -98,6 +98,9 @@ function resolveGroupAddressInfo(state, address) {
 }
 
 function buildGroupAddressFallbackMap(project) {
+    if (project && project._group_address_fallbacks instanceof Map) {
+        return project._group_address_fallbacks;
+    }
     const map = new Map();
     const devices = Array.isArray(project.devices) ? project.devices : [];
     devices.forEach((device) => {
@@ -230,7 +233,15 @@ function normalizeDeviceFromProps(state, props, rawDevice) {
         building_space_id: buildingInfo.buildingSpaceId || '',
         group_links: deviceInfo && Array.isArray(deviceInfo.group_links) ? deviceInfo.group_links : (props.group_links || []),
         configuration_entries: deviceInfo && Array.isArray(deviceInfo.configuration_entries) ? deviceInfo.configuration_entries : (props.configuration_entries || []),
-        configuration: deviceInfo && deviceInfo.configuration ? deviceInfo.configuration : (props.configuration || {})
+        configuration: deviceInfo && deviceInfo.configuration ? deviceInfo.configuration : (props.configuration || {}),
+        config_cached: !!(deviceInfo && deviceInfo._config_cached),
+        config_entry_count: deviceInfo && typeof deviceInfo._config_entry_count === 'number'
+            ? deviceInfo._config_entry_count
+            : (props.config_entry_count || 0),
+        links_cached: !!(deviceInfo && deviceInfo._links_cached),
+        link_count: deviceInfo && typeof deviceInfo._link_count === 'number'
+            ? deviceInfo._link_count
+            : (props.link_count || 0)
     };
 }
 

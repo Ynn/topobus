@@ -1,5 +1,6 @@
 export const state = {
     currentProject: null,
+    currentProjectKey: null,
     currentGraphData: null,
     currentNodeIndex: null,
     groupAddressIndex: null,
@@ -62,6 +63,7 @@ export const state = {
     elkPreset: 'balanced',
     themeName: 'latte',
     deviceGraphCache: null,
+    cacheStats: null,
     viewPreferences: {
         linkStyle: 'auto',
         density: 'comfortable',

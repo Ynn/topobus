@@ -4,13 +4,15 @@ import { applyFiltersAndRender } from './filters.js';
 import { formatDeviceName, measureTextWidth } from './utils.js';
 import { selectCell, highlightCell, registerSelectionListener } from './selection.js';
 import { focusCell, fitContent, exportSvg, ensureDeviceVisible, syncPaperToContent } from './interactions.js';
-import { setSelectionFromTable, setSelectionFromTree } from './selection_store.js';
+import { setSelectionFromTable, setSelectionFromTree, getSelection } from './selection_store.js';
 import { ICON } from './ui/icons.js';
 import { formatDptLabel, resolveDptSize } from './formatters/device.js';
 import { stateManager } from './state_manager.js';
 import { initContextMenu, openContextMenu, copyTextToClipboard, openWebSearch } from './context_menu.js';
 import { onNavigate, requestNavigation } from './navigation.js';
 import { scheduleMinimap } from './minimap.js';
+import { getDevicePayload, getProjectGraphs } from './cache/project_payload_cache.js';
+import { disposeGraph } from './graph/render.js';
 
 // View metadata and table layouts.
 const viewConstants = {
@@ -77,6 +79,8 @@ let tableVisibleEnd = 0;
 let graphResizeTimer = null;
 let autoCollapsedPanels = { left: false, right: false };
 let windowResizeBound = false;
+let tableLinkLoadToken = 0;
+let groupGraphLoadToken = 0;
 
 function ensureInitialColumnWidths(sampleRow) {
     if (tableColumnWidths.size) return;
@@ -328,6 +332,26 @@ function switchViewType(viewType, force = false) {
     }
 }
 
+function scheduleGraphDispose() {
+    const dom = getDom();
+    const graphVisible = dom && dom.graphView && dom.graphView.style.display !== 'none';
+    if (graphVisible) return;
+    if (state.graph) {
+        disposeGraph();
+    }
+    if (state.deviceGraphCache && typeof state.deviceGraphCache.clear === 'function') {
+        state.deviceGraphCache.clear();
+    }
+    stateManager.setStatePatch({
+        currentGraphData: null,
+        currentNodeIndex: null
+    });
+    if (state.currentProject && state.currentProject._graph_cached) {
+        state.currentProject.topology_graph = null;
+        state.currentProject.group_address_graph = null;
+    }
+}
+
 function switchContentTab(tabName) {
     const dom = getDom();
     if (tabName === 'table' && document.body.classList.contains('graph-fullscreen')) {
@@ -345,6 +369,7 @@ function switchContentTab(tabName) {
         dom.tableView.style.display = 'block';
         dom.graphView.style.display = 'none';
         dom.emptyTableState.style.display = 'none'; // logic to show/hide empty state needed?
+        scheduleGraphDispose();
     } else if (tabName === 'graph') {
         dom.tableView.style.display = 'none';
         dom.graphView.style.display = 'block';
@@ -574,6 +599,9 @@ function buildViewData(viewType) {
 }
 
 function buildGroupAddressFallbacks(project) {
+    if (project && project._group_address_fallbacks instanceof Map) {
+        return project._group_address_fallbacks;
+    }
     const map = new Map();
     const devices = Array.isArray(project.devices) ? project.devices : [];
     devices.forEach((device) => {
@@ -1082,8 +1110,70 @@ function buildTopologyDeviceRowsForLine(index, lineKey) {
     return buildTopologyDeviceRows(Array.from(collected.values()));
 }
 
+function buildLoadingGroupObjectRows(device) {
+    const deviceKey = device && (device.instance_id || device.individual_address) ? (device.instance_id || device.individual_address) : 'device';
+    return [{
+        id: `${deviceKey}-loading`,
+        icon: ICON.object,
+        kind: 'group-object',
+        data: {
+            number: '',
+            object: 'Loading...',
+            func: '',
+            group: '',
+            desc: '',
+            channel: '',
+            security: '',
+            buildingFunction: '',
+            buildingPart: '',
+            type: '',
+            size: '',
+            C: '',
+            R: '',
+            W: '',
+            T: '',
+            U: '',
+            I: ''
+        },
+        raw: { device }
+    }];
+}
+
+function scheduleDeviceLinksLoad(device) {
+    if (!device || device._links_loading) return;
+    const projectKey = state.currentProjectKey;
+    const deviceKey = device.individual_address || device.instance_id || '';
+    if (!projectKey || !deviceKey) return;
+
+    device._links_loading = true;
+    const requestId = ++tableLinkLoadToken;
+    getDevicePayload(projectKey, deviceKey)
+        .then((payload) => {
+            device._links_loading = false;
+            if (requestId !== tableLinkLoadToken) return;
+            if (!payload || !Array.isArray(payload.group_links)) return;
+            device.group_links = payload.group_links;
+            device._links_cached = false;
+            device._link_count = payload.group_links.length;
+
+            const selection = getSelection();
+            if (!selection || selection.kind !== 'device') return;
+            const selectedAddress = selection.address || selection.deviceAddress || '';
+            if (selectedAddress && device.individual_address && selectedAddress !== device.individual_address) return;
+            if (state.currentView !== 'topology' && state.currentView !== 'devices') return;
+            renderTableBody(buildTopologyGroupObjectRows(device));
+        })
+        .catch(() => {
+            device._links_loading = false;
+        });
+}
+
 function buildTopologyGroupObjectRows(device) {
     if (!device || !Array.isArray(device.group_links)) return [];
+    if (!device.group_links.length && device._links_cached) {
+        scheduleDeviceLinksLoad(device);
+        return buildLoadingGroupObjectRows(device);
+    }
     const buildingInfo = resolveBuildingInfo(device.individual_address);
     const grouped = new Map();
     device.group_links.forEach((link, idx) => {
@@ -1739,10 +1829,17 @@ function filterTableByTreeSelection(selection) {
 }
 
 function buildGroupAddressObjectRows(address) {
-    const graph = state.currentProject && state.currentProject.group_address_graph
-        ? state.currentProject.group_address_graph
+    const project = state.currentProject;
+    const graph = project && project.group_address_graph
+        ? project.group_address_graph
         : null;
-    if (!graph || !Array.isArray(graph.nodes)) return [];
+    if (!graph || !Array.isArray(graph.nodes)) {
+        if (project && project._graph_cached) {
+            scheduleGroupGraphLoad(address);
+            return buildLoadingGroupAddressRows(address);
+        }
+        return [];
+    }
 
     const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
     const objects = graph.nodes.filter((node) =>
@@ -1790,6 +1887,68 @@ function buildGroupAddressObjectRows(address) {
     });
     rows.sort((a, b) => String(a.data.number || '').localeCompare(String(b.data.number || ''), undefined, { numeric: true }));
     return rows;
+}
+
+function buildLoadingGroupAddressRows(address) {
+    const label = address ? `Loading ${address}...` : 'Loading...';
+    return [{
+        id: `ga-loading-${address || 'all'}`,
+        icon: ICON.object,
+        kind: 'group-object',
+        data: {
+            number: '',
+            object: label,
+            deviceAddress: '',
+            device: '',
+            func: '',
+            desc: '',
+            channel: '',
+            security: '',
+            buildingFunction: '',
+            buildingPart: '',
+            type: '',
+            size: '',
+            S: '',
+            C: '',
+            R: '',
+            W: '',
+            T: '',
+            U: '',
+            I: ''
+        },
+        raw: {}
+    }];
+}
+
+function scheduleGroupGraphLoad(address) {
+    const project = state.currentProject;
+    const projectKey = state.currentProjectKey;
+    if (!project || !projectKey) return;
+    if (project._graph_loading) return;
+    project._graph_loading = true;
+    const requestId = ++groupGraphLoadToken;
+    getProjectGraphs(projectKey)
+        .then((graphs) => {
+            project._graph_loading = false;
+            if (requestId !== groupGraphLoadToken) return;
+            if (graphs && graphs.group_address_graph) {
+                project.group_address_graph = graphs.group_address_graph;
+                project._graph_load_failed = false;
+            }
+            if (graphs && graphs.topology_graph && !project.topology_graph) {
+                project.topology_graph = graphs.topology_graph;
+            }
+            const selection = getSelection();
+            if (!selection || selection.kind !== 'group-address') return;
+            const selectedAddress = selection.value || selection.address || '';
+            if (address && selectedAddress && selectedAddress !== address) return;
+            if (state.currentView !== 'group') return;
+            renderTableHeader(tableLayouts.groupObjects);
+            renderTableBody(buildGroupAddressObjectRows(selectedAddress || address));
+        })
+        .catch(() => {
+            project._graph_loading = false;
+        });
 }
 
 function renderTableHeader(columns, sampleRow, keepOrder = false) {

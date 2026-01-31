@@ -8,6 +8,7 @@
     <meta name="description" content="KNX topology explorer for .knxproj files.">
     <meta name="theme-color" content="#0f766e">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TopoBus">
     <link rel="manifest" href="manifest.json">
@@ -43,6 +44,8 @@
                 <form id="password-form" novalidate>
                     <label for="password-input">Project password (Decryption is local; no password is sent over the network.)</label>
                     <div class="password-actions">
+                        <label class="visually-hidden" for="username-input">Username</label>
+                        <input type="text" id="username-input" name="username" autocomplete="username" class="visually-hidden">
                         <input type="password" id="password-input" placeholder="Leave blank if none" autocomplete="new-password">
                         <button type="button" id="password-submit">Retry</button>
                     </div>

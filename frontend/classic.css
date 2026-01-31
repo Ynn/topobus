@@ -1341,6 +1341,51 @@ tr.table-spacer td {
     white-space: nowrap;
 }
 
+.panel-table.params-table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.panel-table.params-table th,
+.panel-table.params-table td {
+    white-space: normal;
+}
+
+.panel-table.params-table .param-col-name {
+    width: 55%;
+}
+
+.panel-table.params-table .param-col-value {
+    width: 45%;
+}
+
+.panel-table.params-table .param-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.panel-table.params-table .param-meta {
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.panel-table.params-table .param-value-main {
+    font-weight: 500;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.panel-table.params-table .param-value-raw {
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+}
+
 .panel-item {
     padding: 8px;
     background: var(--bg-white);

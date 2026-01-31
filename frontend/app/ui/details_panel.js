@@ -2,8 +2,11 @@ import { ICON } from './icons.js';
 import { createSection, addRow, addRowNode, buildPanelList, buildEmptyState } from './panel_components.js';
 import { formatDatapointType, resolveDatapointInfo } from '../dpt.js';
 import { formatFlagsText, resolveDptSize } from '../formatters/device.js';
+import { state } from '../state.js';
+import { getDevicePayload } from '../cache/project_payload_cache.js';
 
 const lastTabByKind = new Map();
+let payloadLoadToken = 0;
 
 function createNavLink(label, kind, value) {
     const link = document.createElement('span');
@@ -146,6 +149,10 @@ function buildGroupObjectsSection(objects, childrenCount, addressesCount, option
     const linkCount = objects.length;
     const section = createSection(`Group Objects${linkCount ? ` (${linkCount})` : ''}`);
     if (!linkCount) {
+        if (options.loading) {
+            section.appendChild(buildEmptyState('Loading group objects...'));
+            return section;
+        }
         addRow(section, 'Group Objects', String(childrenCount || 0));
         addRow(section, 'Group Addresses', String(addressesCount || 0));
         return section;
@@ -250,7 +257,9 @@ function extractConfigEntries(deviceInfo) {
             return true;
         });
     }
-    const fallback = deviceInfo.configuration || {};
+    const fallback = deviceInfo.configuration && typeof deviceInfo.configuration === 'object'
+        ? deviceInfo.configuration
+        : {};
     return Object.entries(fallback).map(([name, value]) => ({
         name,
         value: value != null ? String(value) : '',
@@ -259,10 +268,67 @@ function extractConfigEntries(deviceInfo) {
     })).filter((entry) => entry.name);
 }
 
-function buildParametersSection(entries) {
-    const section = createSection(`Parameters${entries.length ? ` (${entries.length})` : ''}`);
+function resolveConfigEntryCount(deviceInfo) {
+    if (!deviceInfo) return 0;
+    if (Array.isArray(deviceInfo.configuration_entries) && deviceInfo.configuration_entries.length) {
+        return deviceInfo.configuration_entries.length;
+    }
+    if (typeof deviceInfo.config_entry_count === 'number' && deviceInfo.config_entry_count > 0) {
+        return deviceInfo.config_entry_count;
+    }
+    if (typeof deviceInfo._config_entry_count === 'number' && deviceInfo._config_entry_count > 0) {
+        return deviceInfo._config_entry_count;
+    }
+    const fallback = deviceInfo.configuration && typeof deviceInfo.configuration === 'object'
+        ? deviceInfo.configuration
+        : {};
+    return Object.keys(fallback).length;
+}
+
+function resolveGroupLinkCount(deviceInfo) {
+    if (!deviceInfo) return 0;
+    if (Array.isArray(deviceInfo.group_links) && deviceInfo.group_links.length) {
+        return deviceInfo.group_links.length;
+    }
+    if (typeof deviceInfo.link_count === 'number' && deviceInfo.link_count > 0) {
+        return deviceInfo.link_count;
+    }
+    if (typeof deviceInfo._link_count === 'number' && deviceInfo._link_count > 0) {
+        return deviceInfo._link_count;
+    }
+    return 0;
+}
+
+async function loadDevicePayload(entity, container, options) {
+    if (!entity || !container) return;
+    const projectKey = state.currentProjectKey;
+    const deviceKey = entity.address || entity.id || '';
+    if (!projectKey || !deviceKey) return;
+
+    const requestId = ++payloadLoadToken;
+    const cached = await getDevicePayload(projectKey, deviceKey);
+    if (!cached || requestId !== payloadLoadToken) return;
+
+    const currentKind = container.dataset.entityKind || '';
+    const currentId = container.dataset.entityId || '';
+    const entityId = entity.id || entity.address || '';
+    if (currentKind !== 'device' || (currentId && currentId !== entityId)) return;
+
+    const mergedEntity = {
+        ...entity,
+        configuration_entries: Array.isArray(cached.configuration_entries) ? cached.configuration_entries : [],
+        configuration: cached.configuration && typeof cached.configuration === 'object' ? cached.configuration : {},
+        group_links: Array.isArray(cached.group_links) ? cached.group_links : []
+    };
+    renderDetails(mergedEntity, container, options);
+}
+
+function buildParametersSection(entries, options = {}) {
+    const entryCount = typeof options.entryCount === 'number' ? options.entryCount : entries.length;
+    const section = createSection(`Parameters${entryCount ? ` (${entryCount})` : ''}`);
     if (!entries.length) {
-        section.appendChild(buildEmptyState('No parameters available.'));
+        const emptyLabel = options.loading ? 'Loading parameters...' : 'No parameters available.';
+        section.appendChild(buildEmptyState(emptyLabel));
         return section;
     }
 
@@ -280,14 +346,22 @@ function buildParametersSection(entries) {
     groups.forEach(([groupLabel, groupEntries]) => {
         const groupSection = createSection(groupLabel);
         const table = document.createElement('table');
-        table.className = 'panel-table';
+        table.className = 'panel-table params-table';
+
+        const colgroup = document.createElement('colgroup');
+        const nameCol = document.createElement('col');
+        nameCol.className = 'param-col-name';
+        const valueCol = document.createElement('col');
+        valueCol.className = 'param-col-value';
+        colgroup.appendChild(nameCol);
+        colgroup.appendChild(valueCol);
+        table.appendChild(colgroup);
 
         const thead = document.createElement('thead');
         thead.innerHTML = `
             <tr>
                 <th>Parameter</th>
                 <th>Value</th>
-                <th>Type</th>
             </tr>
         `;
         table.appendChild(thead);
@@ -304,19 +378,38 @@ function buildParametersSection(entries) {
             const row = document.createElement('tr');
 
             const nameCell = document.createElement('td');
-            nameCell.textContent = entry.name || 'Parameter';
+            const nameWrap = document.createElement('div');
+            nameWrap.className = 'param-name';
+            nameWrap.textContent = entry.name || 'Parameter';
+            const metaParts = [];
+            if (entry.parameter_type) metaParts.push(`Type: ${entry.parameter_type}`);
+            if (entry.ref_id) metaParts.push(`Ref: ${entry.ref_id}`);
+            if (entry.source) metaParts.push(`Source: ${entry.source}`);
+            if (metaParts.length) {
+                nameWrap.title = metaParts.join(' · ');
+            }
+            nameCell.appendChild(nameWrap);
+            if (entry.source && entry.source !== 'Parameter') {
+                const meta = document.createElement('div');
+                meta.className = 'param-meta';
+                meta.textContent = entry.source;
+                nameCell.appendChild(meta);
+            }
             row.appendChild(nameCell);
 
             const valueCell = document.createElement('td');
-            valueCell.textContent = displayValue;
+            const valueWrap = document.createElement('div');
+            valueWrap.className = 'param-value-main';
+            valueWrap.textContent = displayValue || '—';
+            valueCell.appendChild(valueWrap);
             if (rawValue && rawValue !== valueLabel) {
+                const raw = document.createElement('div');
+                raw.className = 'param-value-raw';
+                raw.textContent = `RAW: ${rawValue}`;
+                valueCell.appendChild(raw);
                 valueCell.title = `RAW: ${rawValue}`;
             }
             row.appendChild(valueCell);
-
-            const typeCell = document.createElement('td');
-            typeCell.textContent = entry.parameter_type || '';
-            row.appendChild(typeCell);
 
             tbody.appendChild(row);
         });
@@ -368,6 +461,8 @@ function buildHeader(entity) {
 export function renderDetails(entity, container, options = {}) {
     if (!container) return;
     container.innerHTML = '';
+    container.dataset.entityKind = entity && entity.kind ? entity.kind : '';
+    container.dataset.entityId = entity && (entity.id || entity.address) ? (entity.id || entity.address) : '';
 
     const dom = options.dom || null;
     if (!entity) {
@@ -497,29 +592,39 @@ export function renderDetails(entity, container, options = {}) {
             infoSections.push(networkSection);
         }
 
+        const configEntries = extractConfigEntries(entity);
+        const configEntryCount = resolveConfigEntryCount(entity);
         const links = Array.isArray(entity.group_links) ? entity.group_links : [];
+        const linkCount = resolveGroupLinkCount(entity);
+        const shouldLoadPayload = (!configEntries.length && configEntryCount > 0 && entity.config_cached)
+            || (!links.length && linkCount > 0 && entity.links_cached);
         const addressList = Array.from(new Set(links.map((link) => link.group_address).filter(Boolean)));
         const groupedObjects = groupLinksByObject(links);
         const groupObjectsSection = buildGroupObjectsSection(groupedObjects, 0, addressList.length, {
-            deviceAddress: entity.address || ''
+            deviceAddress: entity.address || '',
+            loading: !groupedObjects.length && shouldLoadPayload && linkCount > 0
         });
-
-        const configEntries = extractConfigEntries(entity);
-        const paramsSection = buildParametersSection(configEntries);
+        const paramsSection = buildParametersSection(configEntries, {
+            entryCount: configEntryCount,
+            loading: shouldLoadPayload && !configEntries.length
+        });
 
         const tabs = [
             { key: 'info', label: 'Info', icon: ICON.info, content: infoSections },
             { key: 'objects', label: `Objects (${groupedObjects.length})`, icon: ICON.object, content: [groupObjectsSection] }
         ];
-        if (configEntries.length > 0) {
+        if (configEntries.length > 0 || configEntryCount > 0) {
             tabs.push({
                 key: 'params',
-                label: `Parameters (${configEntries.length})`,
+                label: `Parameters (${configEntryCount || configEntries.length})`,
                 icon: ICON.settings,
                 content: [paramsSection]
             });
         }
         renderDetailsTabs(dom, container, entity.kind, tabs);
+        if (shouldLoadPayload) {
+            loadDevicePayload(entity, container, options);
+        }
         return;
     }
 

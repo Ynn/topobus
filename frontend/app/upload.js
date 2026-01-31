@@ -7,6 +7,7 @@ import { updateClassicView } from './classic_view.js';
 import { ApiError, NetworkError } from './utils/api_client.js';
 import { stateManager } from './state_manager.js';
 import { prepareForProjectLoad } from './project_cleanup.js';
+import { offloadDevicePayloads, offloadProjectGraphs, getProjectCacheStats } from './cache/project_payload_cache.js';
 
 export function setupUploadHandlers() {
     const dom = getDom();
@@ -118,8 +119,23 @@ async function uploadFile(file) {
 
         // Parsing
         const data = await parseKnxprojFile(file, password || null);
+        const projectKey = buildProjectKey(file, data);
+        try {
+            await offloadDevicePayloads(projectKey, data);
+            await offloadProjectGraphs(projectKey, data);
+            const stats = await getProjectCacheStats(projectKey);
+            if (stats) {
+                stateManager.setState('cacheStats', stats);
+                if (typeof window !== 'undefined') {
+                    window.__topobusCacheStats = stats;
+                }
+            }
+        } catch (error) {
+            console.warn('Failed to offload device configs.', error);
+        }
         stateManager.setStatePatch({
             currentProject: data,
+            currentProjectKey: projectKey,
             lastGraphKey: null,
             lastGraphViewType: null,
             graphLoadingActive: false,
@@ -236,4 +252,11 @@ function buildDeviceIndex(project) {
         }
     });
     return map;
+}
+
+function buildProjectKey(file, project) {
+    const base = project && project.project_name ? String(project.project_name) : '';
+    const name = base || (file && file.name ? String(file.name) : '');
+    const seed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    return name ? `${name}::${seed}` : seed;
 }

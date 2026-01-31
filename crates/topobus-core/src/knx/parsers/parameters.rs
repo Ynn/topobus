@@ -168,26 +168,34 @@ fn build_context_path(
     for ancestor in node.ancestors() {
         match ancestor.tag_name().name() {
             xml_tags::CHANNEL => {
-                if let Some(name) = attr_value_localized(&ancestor, "Name", translations, prefix)
-                    .or_else(|| attr_value_localized(&ancestor, "Text", translations, prefix))
-                    .or_else(|| attr_value(&ancestor, "Name"))
+                if let Some(name) = translated_attr_only(&ancestor, "Text", translations, prefix)
+                    .or_else(|| translated_attr_only(&ancestor, "Name", translations, prefix))
                     .or_else(|| attr_value(&ancestor, "Text"))
+                    .or_else(|| attr_value(&ancestor, "Name"))
                 {
                     parts.push(format!("Channel: {}", name));
                 }
             }
             xml_tags::PARAMETER_BLOCK => {
-                if let Some(name) = attr_value_localized(&ancestor, "Name", translations, prefix)
-                    .or_else(|| attr_value(&ancestor, "Name"))
-                {
+                let mut name = translated_attr_only(&ancestor, "Text", translations, prefix)
+                    .or_else(|| translated_attr_only(&ancestor, "Name", translations, prefix));
+                if name.is_none() {
+                    if let Some(param_ref_id) = ancestor.attribute("ParamRefId") {
+                        name = resolve_param_ref_title(param_ref_id, translations, prefix);
+                    }
+                }
+                if name.is_none() {
+                    name = attr_value(&ancestor, "Text").or_else(|| attr_value(&ancestor, "Name"));
+                }
+                if let Some(name) = name {
                     parts.push(format!("Block: {}", name));
                 }
             }
             xml_tags::MODULE => {
-                if let Some(name) = attr_value_localized(&ancestor, "Name", translations, prefix)
-                    .or_else(|| attr_value_localized(&ancestor, "Text", translations, prefix))
-                    .or_else(|| attr_value(&ancestor, "Name"))
+                if let Some(name) = translated_attr_only(&ancestor, "Text", translations, prefix)
+                    .or_else(|| translated_attr_only(&ancestor, "Name", translations, prefix))
                     .or_else(|| attr_value(&ancestor, "Text"))
+                    .or_else(|| attr_value(&ancestor, "Name"))
                 {
                     parts.push(format!("Module: {}", name));
                 }
@@ -201,6 +209,63 @@ fn build_context_path(
         parts.reverse();
         Some(parts.join(" / "))
     }
+}
+
+fn translated_attr_only(
+    node: &Node<'_, '_>,
+    name: &str,
+    translations: &HashMap<String, HashMap<String, String>>,
+    prefix: &str,
+) -> Option<String> {
+    let id = node.attribute("Id").unwrap_or("");
+    if id.is_empty() {
+        return None;
+    }
+    let key = strip_prefix(id, prefix);
+    let map = translations.get(&key)?;
+    let text = map.get(name)?.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+fn resolve_param_ref_title(
+    param_ref_id: &str,
+    translations: &HashMap<String, HashMap<String, String>>,
+    prefix: &str,
+) -> Option<String> {
+    let key = strip_prefix(param_ref_id, prefix);
+    if let Some(text) = lookup_translation_key(&key, translations) {
+        return Some(text);
+    }
+    if let Some((base, _)) = key.split_once("_R-") {
+        if let Some(text) = lookup_translation_key(base, translations) {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn lookup_translation_key(
+    key: &str,
+    translations: &HashMap<String, HashMap<String, String>>,
+) -> Option<String> {
+    let map = translations.get(key)?;
+    if let Some(text) = map.get("Text") {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    if let Some(text) = map.get("Name") {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
 }
 
 pub(crate) fn extract_device_configuration(

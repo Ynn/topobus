@@ -6,8 +6,11 @@ import { syncPaperToContent, updateZoomLOD } from './interactions.js';
 import { scheduleMinimap } from './minimap.js';
 import { shouldShowLoading } from './config/performance.js';
 import { stateManager } from './state_manager.js';
+import { getProjectGraphs } from './cache/project_payload_cache.js';
 
 const ALL_VALUE = 'all';
+let graphLoadToken = 0;
+let graphLoadPromise = null;
 
 export function setupFilterControls() {
     const dom = getDom();
@@ -72,8 +75,15 @@ export function applyFiltersAndRender(options = {}) {
     const dom = getDom();
     const graphVisible = dom && dom.graphView && dom.graphView.style.display !== 'none';
     if (!graphVisible) return;
-    const filtered = filterProject(state.currentProject, state.filters);
     const viewType = resolveGraphViewType(state.currentView);
+    const loadPromise = ensureGraphsLoaded(state.currentProject, viewType);
+    if (loadPromise) {
+        loadPromise.then(() => {
+            applyFiltersAndRender({ ...options, force: true });
+        });
+        return;
+    }
+    const filtered = filterProject(state.currentProject, state.filters);
     const renderKey = buildGraphRenderKey(viewType);
     if (!force && state.graph && state.lastGraphKey === renderKey && state.lastGraphViewType === viewType) {
         syncPaperToContent({ resetView: false });
@@ -146,16 +156,12 @@ function populateSelect(select, options, selected) {
 
 function buildAreaOptions(project) {
     const options = [{ value: ALL_VALUE, label: 'All Areas' }];
-    const nodes = project.topology_graph && project.topology_graph.nodes
-        ? project.topology_graph.nodes
-        : [];
-    const areas = nodes.filter((node) => node.kind === 'area');
-    const mapped = areas.map((node) => {
-        const props = node.properties || {};
-        const area = props.area || props.address || 'unknown';
-        const name = props.name ? ` : ${props.name}` : '';
-        const label = area === 'unknown' ? 'Area Unknown' : `Area ${area}${name}`;
-        return { value: String(area), label };
+    const areas = Array.isArray(project.areas) ? project.areas : [];
+    const mapped = areas.map((area) => {
+        const addr = area.address != null ? String(area.address) : 'unknown';
+        const name = area.name ? ` : ${area.name}` : '';
+        const label = addr === 'unknown' ? 'Area Unknown' : `Area ${addr}${name}`;
+        return { value: addr, label };
     });
     mapped.sort(sortNumericOptions);
     mapped.forEach((opt) => options.push(opt));
@@ -163,21 +169,17 @@ function buildAreaOptions(project) {
 }
 
 function buildLineOptions(project) {
-    const nodes = project.topology_graph && project.topology_graph.nodes
-        ? project.topology_graph.nodes
-        : [];
-    const lines = nodes.filter((node) => node.kind === 'line');
+    const lines = Array.isArray(project.lines) ? project.lines : [];
     const byArea = new Map();
-    lines.forEach((node) => {
-        const props = node.properties || {};
-        const area = props.area || 'unknown';
-        const line = props.line || 'unknown';
-        const name = props.name ? ` : ${props.name}` : '';
-        let label = `Line ${area}.${line}${name}`;
-        if (line === 'unknown') {
+    lines.forEach((line) => {
+        const area = line.area != null ? String(line.area) : 'unknown';
+        const lineNumber = line.line != null ? String(line.line) : 'unknown';
+        const name = line.name ? ` : ${line.name}` : '';
+        let label = `Line ${area}.${lineNumber}${name}`;
+        if (lineNumber === 'unknown') {
             label = area === 'unknown' ? 'Line Unknown' : `Line ${area}.?${name}`;
         }
-        const value = `${area}.${line}`;
+        const value = `${area}.${lineNumber}`;
         if (!byArea.has(area)) {
             byArea.set(area, []);
         }
@@ -192,25 +194,21 @@ function buildLineOptions(project) {
 
 function buildMainGroupOptions(project) {
     const options = [{ value: ALL_VALUE, label: 'All Groups' }];
-    const nodes = project.group_address_graph && project.group_address_graph.nodes
-        ? project.group_address_graph.nodes
-        : [];
+    const addresses = Array.isArray(project.group_addresses) ? project.group_addresses : [];
     const mainMap = new Map();
     const middleMap = new Map();
-    nodes.forEach((node) => {
-        if (node.kind !== 'groupaddress') return;
-        const props = node.properties || {};
-        const address = props.address || '';
+    addresses.forEach((entry) => {
+        const address = entry.address || '';
         const parts = parseGroupAddressParts(address);
         if (!parts.main) return;
 
         if (!mainMap.has(parts.main)) {
-            const name = props.main_name ? ` : ${props.main_name}` : '';
+            const name = entry.main_group_name ? ` : ${entry.main_group_name}` : '';
             mainMap.set(parts.main, { value: `main:${parts.main}`, label: `Main ${parts.main}${name}` });
         }
 
         if (parts.middle && !middleMap.has(parts.middleKey)) {
-            const middleName = props.middle_name ? ` : ${props.middle_name}` : '';
+            const middleName = entry.middle_group_name ? ` : ${entry.middle_group_name}` : '';
             const label = `${parts.middleKey}${middleName}`;
             middleMap.set(parts.middleKey, { value: `mid:${parts.middleKey}`, label });
         }
@@ -548,6 +546,50 @@ function resolveGraphViewType(viewType) {
     return viewType;
 }
 
+function needsTopologyGraph(viewType) {
+    return viewType === 'topology';
+}
+
+function needsGroupGraph(viewType) {
+    return viewType === 'group' || viewType === 'composite' || viewType === 'device';
+}
+
+function ensureGraphsLoaded(project, viewType) {
+    if (!project || !project._graph_cached || !state.currentProjectKey) return null;
+    if (project._graph_load_failed) return null;
+    const requiresTopology = needsTopologyGraph(viewType);
+    const requiresGroup = needsGroupGraph(viewType);
+    const missingTopology = requiresTopology && !(project.topology_graph && Array.isArray(project.topology_graph.nodes));
+    const missingGroup = requiresGroup && !(project.group_address_graph && Array.isArray(project.group_address_graph.nodes));
+    if (!missingTopology && !missingGroup) return null;
+    if (graphLoadPromise) return graphLoadPromise;
+
+    const token = ++graphLoadToken;
+    graphLoadPromise = (async () => {
+        startGraphLoading('Loading graph...');
+        const graphs = await getProjectGraphs(state.currentProjectKey);
+        if (token !== graphLoadToken) return;
+        if (graphs) {
+            if (missingTopology && graphs.topology_graph) {
+                project.topology_graph = graphs.topology_graph;
+            }
+            if (missingGroup && graphs.group_address_graph) {
+                project.group_address_graph = graphs.group_address_graph;
+            }
+        }
+        const topologyReady = !missingTopology || (project.topology_graph && Array.isArray(project.topology_graph.nodes));
+        const groupReady = !missingGroup || (project.group_address_graph && Array.isArray(project.group_address_graph.nodes));
+        project._graph_load_failed = !(topologyReady && groupReady);
+    })()
+        .catch(() => {})
+        .finally(() => {
+            graphLoadPromise = null;
+            stopGraphLoading();
+        });
+
+    return graphLoadPromise;
+}
+
 function estimateGraphNodeCount(project, viewType) {
     if (!project) return 0;
     if (viewType === 'device') {
@@ -569,7 +611,16 @@ function estimateGraphNodeCount(project, viewType) {
     const graph = viewType === 'topology'
         ? project.topology_graph
         : project.group_address_graph;
-    return graph && Array.isArray(graph.nodes) ? graph.nodes.length : 0;
+    if (graph && Array.isArray(graph.nodes)) {
+        return graph.nodes.length;
+    }
+    if (project._graph_counts) {
+        const counts = viewType === 'topology'
+            ? project._graph_counts.topology
+            : project._graph_counts.group;
+        return counts && typeof counts.nodes === 'number' ? counts.nodes : 0;
+    }
+    return 0;
 }
 
 function estimateGraphEdgeCount(project, viewType) {
@@ -578,7 +629,16 @@ function estimateGraphEdgeCount(project, viewType) {
     const graph = viewType === 'topology'
         ? project.topology_graph
         : project.group_address_graph;
-    return graph && Array.isArray(graph.edges) ? graph.edges.length : 0;
+    if (graph && Array.isArray(graph.edges)) {
+        return graph.edges.length;
+    }
+    if (project._graph_counts) {
+        const counts = viewType === 'topology'
+            ? project._graph_counts.topology
+            : project._graph_counts.group;
+        return counts && typeof counts.edges === 'number' ? counts.edges : 0;
+    }
+    return 0;
 }
 
 function buildGraphRenderKey(viewType) {

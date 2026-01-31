@@ -3,6 +3,8 @@ import { stateManager } from './state_manager.js';
 import { resetLayoutCaches } from './graph/layout.js';
 import { resetEntityCaches } from './entities/normalize.js';
 import { resetClassicViewCaches } from './classic_view.js';
+import { clearLayoutCache } from './cache/layout_cache.js';
+import { clearProjectPayloadCache } from './cache/project_payload_cache.js';
 import { disposeGraph } from './graph/render.js';
 import { resetMinimap } from './minimap.js';
 import { clearSelection } from './selection.js';
@@ -16,6 +18,8 @@ export function prepareForProjectLoad() {
     resetLayoutCaches();
     resetEntityCaches();
     resetClassicViewCaches();
+    clearLayoutCache();
+    clearProjectPayloadCache();
 
     if (state.deviceGraphCache && typeof state.deviceGraphCache.clear === 'function') {
         state.deviceGraphCache.clear();
@@ -23,6 +27,7 @@ export function prepareForProjectLoad() {
 
     stateManager.setStatePatch({
         currentProject: null,
+        currentProjectKey: null,
         currentGraphData: null,
         currentNodeIndex: null,
         topologyIndex: null,

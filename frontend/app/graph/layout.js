@@ -3,6 +3,7 @@ import { getDom } from '../dom.js';
 import { startGraphLoading, stopGraphLoading } from './loading.js';
 import { getLayoutSettings, readTheme } from '../theme.js';
 import { syncPaperToContent } from '../interactions.js';
+import { getLayoutCache, setLayoutCache } from '../cache/layout_cache.js';
 import {
     compareGroupAddressNodes,
     compareGroupAddress,
@@ -432,6 +433,52 @@ function getElkInstance() {
     return cachedElk;
 }
 
+function hashString(value) {
+    let hash = 5381;
+    for (let i = 0; i < value.length; i += 1) {
+        hash = ((hash << 5) + hash) + value.charCodeAt(i);
+        hash |= 0;
+    }
+    return (hash >>> 0).toString(36);
+}
+
+function buildElkCacheKey(layouts, edges, viewType, availableWidth, settings, elkOptions) {
+    const project = state.currentProject;
+    const projectKey = project ? `${project.project_name || 'project'}:${project.devices?.length || 0}:${project.group_addresses?.length || 0}` : 'project';
+    const layoutSig = layouts
+        .map((layout) => `${layout.node.id}:${Math.round(layout.width || 0)}x${Math.round(layout.height || 0)}`)
+        .sort()
+        .join('|');
+    const edgeSig = edges
+        .map((edge) => {
+            const source = edge.source || '';
+            const target = edge.target || '';
+            return source < target ? `${source}|${target}` : `${target}|${source}`;
+        })
+        .sort()
+        .join('|');
+    const optionsSig = elkOptions ? JSON.stringify(elkOptions) : '';
+    const widthSig = Math.round(availableWidth || 0);
+    const scaleSig = settings ? settings.scale : 1;
+    const keyBase = `${projectKey}|${viewType}|${widthSig}|${scaleSig}|${optionsSig}|${layoutSig}|${edgeSig}`;
+    return `elk:${hashString(keyBase)}`;
+}
+
+function applyCachedLayout(layouts, cached) {
+    if (!cached || !Array.isArray(cached.positions)) return false;
+    const posMap = new Map(cached.positions.map((pos) => [pos.id, pos]));
+    for (const layout of layouts) {
+        const pos = posMap.get(layout.node.id);
+        if (!pos) return false;
+    }
+    layouts.forEach((layout) => {
+        const pos = posMap.get(layout.node.id);
+        layout.x = pos.x;
+        layout.y = pos.y;
+    });
+    return true;
+}
+
 function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, settings, viewType, availableWidth, edgesForLayout) {
     const elk = getElkInstance();
     if (!elk) return;
@@ -451,10 +498,12 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
 
     const token = (state.elkLayoutToken || 0) + 1;
     stateManager.setState('elkLayoutToken', token);
+    const elkOptions = buildElkOptions(settings);
+    const cacheKey = buildElkCacheKey(layouts, edges, viewType, availableWidth, settings, elkOptions);
 
     const elkGraph = {
         id: 'knx-group-layout',
-        layoutOptions: buildElkOptions(settings),
+        layoutOptions: elkOptions,
         children: layouts.map(layout => ({
             id: layout.node.id,
             width: layout.width,
@@ -467,75 +516,102 @@ function scheduleElkGroupLayout(layouts, nodes, deviceNodes, elementsById, setti
         }))
     };
 
-    const dom = getDom();
-    if (dom && dom.loading) {
-        startGraphLoading('Optimizing layout...');
-        stateManager.setState('elkLayoutActive', true);
-    }
-
-    elk.layout(elkGraph).then((result) => {
-        if (!result || !result.children) return;
-        if (state.elkLayoutToken !== token) return;
-        if (!isElkViewActive(viewType)) return;
-
-        const positions = new Map(result.children.map(child => [child.id, child]));
-        let minX = Infinity;
-        let minY = Infinity;
-        positions.forEach((child) => {
-            minX = Math.min(minX, child.x || 0);
-            minY = Math.min(minY, child.y || 0);
-        });
-
-        const offsetX = 40 - (isFinite(minX) ? minX : 0);
-        const offsetY = 40 - (isFinite(minY) ? minY : 0);
-
-        layouts.forEach(layout => {
-            const pos = positions.get(layout.node.id);
-            if (!pos) return;
-            layout.x = Math.round((pos.x || 0) + offsetX);
-            layout.y = Math.round((pos.y || 0) + offsetY);
-        });
-
-        if (elkConfig.requiresOverlapResolution) {
-            const overlapPadding = Math.max(8, Math.round(settings.padding * 0.9));
-            const iterations = elkConfig.overlapIterations || 12;
-            resolveOverlaps(layouts, overlapPadding, iterations);
-            let adjustMinX = Infinity;
-            let adjustMinY = Infinity;
-            layouts.forEach((layout) => {
-                adjustMinX = Math.min(adjustMinX, layout.x || 0);
-                adjustMinY = Math.min(adjustMinY, layout.y || 0);
-            });
-            if (isFinite(adjustMinX) && isFinite(adjustMinY)) {
-                const shiftX = 40 - adjustMinX;
-                const shiftY = 40 - adjustMinY;
-                if (Math.abs(shiftX) > 0.1 || Math.abs(shiftY) > 0.1) {
-                    layouts.forEach((layout) => {
-                        layout.x = Math.round((layout.x || 0) + shiftX);
-                        layout.y = Math.round((layout.y || 0) + shiftY);
-                    });
+    getLayoutCache(cacheKey).then((cached) => {
+        if (cached && state.elkLayoutToken === token && isElkViewActive(viewType)) {
+            if (applyCachedLayout(layouts, cached)) {
+                if (state.graph && state.graph.startBatch) {
+                    state.graph.startBatch('elk-layout');
                 }
+                applyGroupLayouts(layouts, elementsById, settings, { viewType });
+                if (state.graph && state.graph.stopBatch) {
+                    state.graph.stopBatch('elk-layout');
+                }
+                syncPaperToContent({ resetView: false, normalizeOnScroll: false });
+                stateManager.setState('elkLayoutActive', false);
+                stopGraphLoading();
+                return;
             }
         }
 
-        if (viewType === 'group' && edges.length) {
-            applyComponentLayout(layouts, edges, availableWidth, settings);
+        const dom = getDom();
+        if (dom && dom.loading) {
+            startGraphLoading('Optimizing layout...');
+            stateManager.setState('elkLayoutActive', true);
         }
 
-        if (state.graph && state.graph.startBatch) {
-            state.graph.startBatch('elk-layout');
-        }
-        applyGroupLayouts(layouts, elementsById, settings, { viewType });
-        if (state.graph && state.graph.stopBatch) {
-            state.graph.stopBatch('elk-layout');
-        }
-        syncPaperToContent({ resetView: false, normalizeOnScroll: false });
-        stateManager.setState('elkLayoutActive', false);
-        stopGraphLoading();
-    }).catch((error) => {
-        console.warn('ELK layout failed', error);
-        stateManager.setState('elkLayoutActive', false);
-        stopGraphLoading();
+        elk.layout(elkGraph).then((result) => {
+            if (!result || !result.children) return;
+            if (state.elkLayoutToken !== token) return;
+            if (!isElkViewActive(viewType)) return;
+
+            const positions = new Map(result.children.map(child => [child.id, child]));
+            let minX = Infinity;
+            let minY = Infinity;
+            positions.forEach((child) => {
+                minX = Math.min(minX, child.x || 0);
+                minY = Math.min(minY, child.y || 0);
+            });
+
+            const offsetX = 40 - (isFinite(minX) ? minX : 0);
+            const offsetY = 40 - (isFinite(minY) ? minY : 0);
+
+            layouts.forEach(layout => {
+                const pos = positions.get(layout.node.id);
+                if (!pos) return;
+                layout.x = Math.round((pos.x || 0) + offsetX);
+                layout.y = Math.round((pos.y || 0) + offsetY);
+            });
+
+            if (elkConfig.requiresOverlapResolution) {
+                const overlapPadding = Math.max(8, Math.round(settings.padding * 0.9));
+                const iterations = elkConfig.overlapIterations || 12;
+                resolveOverlaps(layouts, overlapPadding, iterations);
+                let adjustMinX = Infinity;
+                let adjustMinY = Infinity;
+                layouts.forEach((layout) => {
+                    adjustMinX = Math.min(adjustMinX, layout.x || 0);
+                    adjustMinY = Math.min(adjustMinY, layout.y || 0);
+                });
+                if (isFinite(adjustMinX) && isFinite(adjustMinY)) {
+                    const shiftX = 40 - adjustMinX;
+                    const shiftY = 40 - adjustMinY;
+                    if (Math.abs(shiftX) > 0.1 || Math.abs(shiftY) > 0.1) {
+                        layouts.forEach((layout) => {
+                            layout.x = Math.round((layout.x || 0) + shiftX);
+                            layout.y = Math.round((layout.y || 0) + shiftY);
+                        });
+                    }
+                }
+            }
+
+            if (viewType === 'group' && edges.length) {
+                applyComponentLayout(layouts, edges, availableWidth, settings);
+            }
+
+            if (state.graph && state.graph.startBatch) {
+                state.graph.startBatch('elk-layout');
+            }
+            applyGroupLayouts(layouts, elementsById, settings, { viewType });
+            if (state.graph && state.graph.stopBatch) {
+                state.graph.stopBatch('elk-layout');
+            }
+            syncPaperToContent({ resetView: false, normalizeOnScroll: false });
+            stateManager.setState('elkLayoutActive', false);
+            stopGraphLoading();
+            const cachedPositions = layouts.map((layout) => ({
+                id: layout.node.id,
+                x: layout.x,
+                y: layout.y
+            }));
+            setLayoutCache(cacheKey, {
+                positions: cachedPositions,
+                createdAt: Date.now()
+            });
+        }).catch((error) => {
+            console.warn('ELK layout failed', error);
+            stateManager.setState('elkLayoutActive', false);
+            stopGraphLoading();
+        });
     });
 }
 
