@@ -94,8 +94,9 @@ fn estimate_uncompressed_size(data: &[u8]) -> Result<u64, ValidationError> {
         .map_err(|e| ValidationError::ArchiveError(e.to_string()))?;
     let mut total: u64 = 0;
     for i in 0..archive.len() {
+        // Use raw access to read metadata without requiring a password for encrypted entries.
         let file = archive
-            .by_index(i)
+            .by_index_raw(i)
             .map_err(|e| ValidationError::ArchiveError(e.to_string()))?;
         total = total.saturating_add(file.size());
     }
