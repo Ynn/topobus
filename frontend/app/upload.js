@@ -119,6 +119,24 @@ async function uploadFile(file) {
 
         // Parsing
         const data = await parseKnxprojFile(file, password || null);
+        if (data && typeof data === 'object') {
+            const info = data.project_info || {};
+            if (!data.project_info) {
+                data.project_info = info;
+            }
+            if (info.file_size == null && Number.isFinite(file.size)) {
+                info.file_size = String(file.size);
+            }
+            if (info.file_last_modified == null && file.lastModified) {
+                info.file_last_modified = new Date(file.lastModified).toISOString();
+            }
+            if (info.project_size == null && Number.isFinite(file.size)) {
+                info.project_size = String(file.size);
+            }
+            if (info.last_modified == null && file.lastModified) {
+                info.last_modified = new Date(file.lastModified).toISOString();
+            }
+        }
         const projectKey = buildProjectKey(file, data);
         try {
             await offloadDevicePayloads(projectKey, data);

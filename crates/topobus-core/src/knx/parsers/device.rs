@@ -51,6 +51,7 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                 continue;
             }
         };
+        let (channel_by_object, channel_by_id) = build_channel_maps(&device_node);
         let area = find_ancestor_address(&device_node, xml_tags::AREA);
         let line = find_ancestor_address(&device_node, xml_tags::LINE);
         let mut device_addr = attr_value(&device_node, "Address");
@@ -267,6 +268,7 @@ pub(crate) fn extract_devices<R: Read + Seek>(
             );
                 let com_flags = com_data.flags;
             let link_security = attr_value(&com_ref, "Security");
+            let channel_id = attr_value(&com_ref, "ChannelId");
             let link_building_function = attr_value(&com_ref, "BuildingFunction")
                 .or_else(|| attr_value(&com_ref, "BuildingFunctionRefId"))
                 .or_else(|| attr_value(&com_ref, "BuildingFunctionId"));
@@ -305,6 +307,9 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                 let address = info
                     .map(|ga| ga.address.clone())
                     .unwrap_or_else(|| link_id.to_string());
+                let security = link_security
+                    .clone()
+                    .or_else(|| info.and_then(|ga| ga.security.clone()));
 
                 if link_index == 0 {
                     ets_sending_address = Some(address.clone());
@@ -350,6 +355,13 @@ pub(crate) fn extract_devices<R: Read + Seek>(
             };
 
                 let ets_sending = link_index == 0;
+                let channel = com_data.channel.clone().or_else(|| {
+                    channel_by_object
+                        .get(ref_id)
+                        .cloned()
+                        .or_else(|| channel_id.as_ref().and_then(|id| channel_by_id.get(id).cloned()))
+                        .or_else(|| channel_id.clone())
+                });
                 group_links.push(GroupLink {
                     com_object_ref_id: Some(ref_id.to_string()),
                     object_name,
@@ -360,12 +372,12 @@ pub(crate) fn extract_devices<R: Read + Seek>(
                     ets_sending_address: ets_sending_address.clone(),
                     ets_sending,
                     ets_receiving: link_index != 0,
-                    channel: com_data.channel.clone(),
+                    channel,
                     datapoint_type: com_data.datapoint_type.clone(),
                     number: adjusted_number.or(com_data.number),
                     description: com_data.description.clone(),
                     object_size: com_data.object_size.clone(),
-                    security: link_security.clone(),
+                    security,
                     building_function: link_building_function.clone(),
                     building_part: link_building_part.clone(),
                     flags: com_flags.to_model_flags_opt(),
@@ -419,6 +431,59 @@ fn parse_links_attribute(link_attr: &str) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
         .collect()
+}
+
+fn build_channel_maps(device_node: &roxmltree::Node) -> (HashMap<String, String>, HashMap<String, String>) {
+    let mut by_object = HashMap::new();
+    let mut by_channel_id = HashMap::new();
+
+    let tree = device_node
+        .children()
+        .find(|node| node.is_element() && node.tag_name().name() == "GroupObjectTree");
+    let tree = match tree {
+        Some(node) => node,
+        None => return (by_object, by_channel_id),
+    };
+
+    let mut channel_index = 0;
+    for node in tree
+        .descendants()
+        .filter(|n| n.is_element() && n.tag_name().name() == "Node")
+    {
+        let node_type = node.attribute("Type").unwrap_or("");
+        if node_type != "Channel" && node_type != "ChannelIndependentBlock" {
+            continue;
+        }
+        let label = attr_value(&node, "Text")
+            .or_else(|| attr_value(&node, "Name"))
+            .or_else(|| attr_value(&node, "Label"))
+            .or_else(|| {
+                if node_type == "ChannelIndependentBlock" {
+                    Some("Independent".to_string())
+                } else {
+                    channel_index += 1;
+                    Some(format!("Channel {}", channel_index))
+                }
+            })
+            .unwrap_or_else(|| "Channel".to_string());
+
+        if let Some(channel_id) = node.attribute("RefId") {
+            if !channel_id.trim().is_empty() {
+                by_channel_id.insert(channel_id.trim().to_string(), label.clone());
+            }
+        }
+
+        if let Some(instances) = node.attribute("GroupObjectInstances") {
+            for id in instances
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .filter(|value| !value.trim().is_empty())
+            {
+                by_object.insert(id.trim().to_string(), label.clone());
+            }
+        }
+    }
+
+    (by_object, by_channel_id)
 }
 
 fn extract_connector_links(com_ref: &roxmltree::Node) -> Vec<String> {

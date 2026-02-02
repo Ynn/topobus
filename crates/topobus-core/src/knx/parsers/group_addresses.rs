@@ -2,14 +2,16 @@ use anyhow::Result;
 use roxmltree::Document;
 use std::collections::HashMap;
 
-use crate::knx::address::GroupAddress;
+use crate::knx::address::{parse_group_address_style, GroupAddress, GroupAddressStyle};
 use crate::knx::model::GroupAddressInfo;
 use crate::knx::xml_tags;
 use crate::knx::xml_utils::{attr_value, find_elements_by_tag, required_attribute, ParseError, short_id};
 
 pub fn extract_group_addresses(
     doc: &Document,
+    style: Option<&str>,
 ) -> Result<(Vec<GroupAddressInfo>, HashMap<String, GroupAddressInfo>)> {
+    let parsed_style = style.map(parse_group_address_style).unwrap_or(GroupAddressStyle::ThreeLevel);
     let mut group_addresses = Vec::new();
     let mut by_id = HashMap::new();
 
@@ -71,9 +73,11 @@ pub fn extract_group_addresses(
                 continue;
             }
         };
-        let address = GroupAddress::new(address_value).to_string();
+        let address = GroupAddress::with_style(address_value, parsed_style).to_string();
         let name = group.attribute("Name").unwrap_or("").to_string();
         let datapoint_type = group.attribute("DatapointType").map(|s| s.to_string());
+        let security = attr_value(&group, "Security");
+        let security_key = attr_value(&group, "Key");
         let description = attr_value(&group, "Description");
         let comment = attr_value(&group, "Comment");
 
@@ -89,6 +93,8 @@ pub fn extract_group_addresses(
             description,
             comment,
             datapoint_type,
+            security,
+            security_key,
             linked_devices: Vec::new(),
         };
 
@@ -115,7 +121,7 @@ mod tests {
         </KNX>
         "#;
         let doc = roxmltree::Document::parse(xml)?;
-        let (groups, by_id) = extract_group_addresses(&doc)?;
+        let (groups, by_id) = extract_group_addresses(&doc, None)?;
         assert_eq!(groups.len(), 1);
         assert_eq!(by_id.len(), 1);
         assert_eq!(groups[0].name, "Valid");

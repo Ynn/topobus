@@ -25,6 +25,68 @@ function wrapPanelTable(table) {
     return wrapper;
 }
 
+function isDarkColor(hex) {
+    const clean = String(hex || '').replace('#', '');
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return false;
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance < 0.6;
+}
+
+function buildTagBadges(tags) {
+    if (!Array.isArray(tags) || !tags.length) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'panel-item-tags';
+    tags.forEach((tag) => {
+        if (!tag) return;
+        const label = tag.text || tag.name || '';
+        if (!label) return;
+        const badge = document.createElement('span');
+        badge.className = 'panel-tag';
+        badge.textContent = label;
+        const color = tag.color || tag.colour || '';
+        if (color) {
+            badge.style.background = color;
+            badge.style.color = isDarkColor(color) ? '#fff' : '#1f2937';
+        }
+        wrap.appendChild(badge);
+    });
+    return wrap.childElementCount ? wrap : null;
+}
+
+function formatBytes(value) {
+    if (value == null || value === '') return '';
+    const num = typeof value === 'number' ? value : Number(String(value).trim());
+    if (!Number.isFinite(num) || num <= 0) return String(value);
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = num;
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+        size /= 1024;
+        unit += 1;
+    }
+    const precision = size >= 100 ? 0 : size >= 10 ? 1 : 2;
+    return `${size.toFixed(precision)} ${units[unit]}`;
+}
+
+function formatTimestamp(value) {
+    if (!value) return '';
+    if (typeof value === 'number') {
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+    }
+    const str = String(value).trim();
+    if (!str) return '';
+    const numeric = Number(str);
+    if (Number.isFinite(numeric) && str.length >= 10) {
+        const date = new Date(numeric);
+        return Number.isNaN(date.getTime()) ? str : date.toISOString();
+    }
+    return str;
+}
+
 function resetPropertiesTabs(dom) {
     if (!dom || !dom.propertiesTabs) return;
     dom.propertiesTabs.innerHTML = '';
@@ -428,6 +490,7 @@ function kindLabel(kind) {
     if (kind === 'area') return 'Area';
     if (kind === 'line') return 'Line';
     if (kind === 'segment') return 'Segment';
+    if (kind === 'project') return 'Project';
     if (kind === 'group-main') return 'Main Group';
     if (kind === 'group-middle') return 'Middle Group';
     if (kind === 'building-space') return 'Building Space';
@@ -472,6 +535,133 @@ export function renderDetails(entity, container, options = {}) {
     }
 
     container.appendChild(buildHeader(entity));
+
+    if (entity.kind === 'project') {
+        const info = entity.info || {};
+        const overview = createSection('Project Overview');
+        addRow(overview, 'Name', info.name || entity.title);
+        addRow(overview, 'Type', info.project_type || info.projectType);
+        addRow(overview, 'Project Number', info.project_number || info.projectNumber);
+        addRow(overview, 'Contract Number', info.contract_number || info.contractNumber);
+        addRow(overview, 'Description', info.description || info.comment);
+        addRow(overview, 'Codepage', info.codepage || info.code_page);
+        addRow(overview, 'Last Modified', formatTimestamp(info.last_modified || info.lastModified || info.file_last_modified));
+        addRow(overview, 'Project Size', formatBytes(info.project_size || info.projectSize || info.file_size));
+        addRow(overview, 'Status', info.completion_status || info.status);
+        addRow(overview, 'Archived Version', info.archived_version || info.archivedVersion);
+        addRow(overview, 'Group Address Style', info.group_address_style || info.groupAddressStyle);
+
+        const tagSection = createSection('Tags');
+        const tags = buildTagBadges(info.tags);
+        if (tags) {
+            addRowNode(tagSection, 'Tags', tags);
+        } else {
+            tagSection.appendChild(buildEmptyState('No tags.'));
+        }
+
+        const security = createSection('Security');
+        addRow(security, 'Security Mode', info.security_mode || info.security);
+        addRow(security, 'Tracing Password Hash', info.project_tracing_password || info.projectTracingPassword);
+        addRow(security, 'BCU Key', info.bcu_key || info.bcuKey);
+
+        const statsSection = createSection('Statistics');
+        const stats = entity.stats || {};
+        addRow(statsSection, 'Areas', stats.areas);
+        addRow(statsSection, 'Lines', stats.lines);
+        addRow(statsSection, 'Segments', stats.segments);
+        addRow(statsSection, 'Devices', stats.devices);
+        addRow(statsSection, 'Group Addresses', stats.group_addresses);
+        addRow(statsSection, 'Group Links', stats.group_links);
+        addRow(statsSection, 'Building Spaces', stats.locations);
+
+        const graphCounts = entity.graph_counts || null;
+        if (graphCounts) {
+            addRow(statsSection, 'Topology Nodes', graphCounts.topology && graphCounts.topology.nodes);
+            addRow(statsSection, 'Topology Edges', graphCounts.topology && graphCounts.topology.edges);
+            addRow(statsSection, 'Group Graph Nodes', graphCounts.group && graphCounts.group.nodes);
+            addRow(statsSection, 'Group Graph Edges', graphCounts.group && graphCounts.group.edges);
+        }
+
+        const cache = entity.cache || null;
+        const cacheSection = cache || entity.project_key ? createSection('Cache') : null;
+        if (cacheSection) {
+            addRow(cacheSection, 'Project Key', entity.project_key);
+            if (cache) {
+                addRow(cacheSection, 'Device Payloads', cache.devicePayloadCount);
+                addRow(cacheSection, 'Graphs Cached', cache.hasProjectGraphs ? 'Yes' : 'No');
+            }
+        }
+
+        const attachments = Array.isArray(info.attachments) ? info.attachments : [];
+        const attachmentsSection = createSection(`Attachments${attachments.length ? ` (${attachments.length})` : ''}`);
+        if (!attachments.length) {
+            attachmentsSection.appendChild(buildEmptyState('No attachments.'));
+        } else {
+            const list = buildPanelList();
+            attachments.forEach((file) => {
+                if (!file) return;
+                const item = document.createElement('div');
+                item.className = 'panel-item';
+                const title = document.createElement('div');
+                title.className = 'panel-item-title';
+                title.textContent = file.filename || file.name || 'Attachment';
+                item.appendChild(title);
+                const meta = document.createElement('div');
+                meta.className = 'panel-item-meta';
+                if (file.comment) {
+                    const value = document.createElement('span');
+                    value.className = 'panel-item-value';
+                    value.textContent = file.comment;
+                    meta.appendChild(value);
+                }
+                if (meta.childElementCount) item.appendChild(meta);
+                list.appendChild(item);
+            });
+            attachmentsSection.appendChild(list);
+        }
+
+        const history = Array.isArray(info.history) ? info.history : [];
+        const historySection = createSection(`History${history.length ? ` (${history.length})` : ''}`);
+        if (!history.length) {
+            historySection.appendChild(buildEmptyState('No history entries.'));
+        } else {
+            const list = buildPanelList();
+            history.forEach((entry) => {
+                if (!entry) return;
+                const item = document.createElement('div');
+                item.className = 'panel-item';
+                const title = document.createElement('div');
+                title.className = 'panel-item-title';
+                title.textContent = entry.text || entry.detail || 'Change';
+                item.appendChild(title);
+                const meta = document.createElement('div');
+                meta.className = 'panel-item-meta';
+                if (entry.user) {
+                    const user = document.createElement('span');
+                    user.className = 'panel-item-value';
+                    user.textContent = entry.user;
+                    meta.appendChild(user);
+                }
+                if (entry.date) {
+                    const date = document.createElement('span');
+                    date.textContent = entry.date;
+                    meta.appendChild(date);
+                }
+                if (meta.childElementCount) item.appendChild(meta);
+                list.appendChild(item);
+            });
+            historySection.appendChild(list);
+        }
+
+        const statsContent = cacheSection ? [statsSection, cacheSection] : [statsSection];
+        renderDetailsTabs(dom, container, entity.kind, [
+            { key: 'overview', label: 'Overview', icon: ICON.info, content: [overview, tagSection, security] },
+            { key: 'stats', label: 'Statistics', icon: ICON.object, content: statsContent },
+            { key: 'files', label: `Attachments (${attachments.length})`, icon: ICON.file, content: [attachmentsSection] },
+            { key: 'history', label: `History (${history.length})`, icon: ICON.folderOpen, content: [historySection] }
+        ]);
+        return;
+    }
 
     if (entity.kind === 'group-address') {
         const infoSection = createSection('Group Address');

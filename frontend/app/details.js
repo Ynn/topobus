@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { getDom } from './dom.js';
-import { getSelection, registerSelectionListener } from './selection_store.js';
+import { getSelection, registerSelectionListener, setSelection } from './selection_store.js';
 import { renderDetails } from './ui/details_panel.js';
 import { selectCell } from './selection.js';
 import { focusCell } from './interactions.js';
@@ -41,6 +41,116 @@ function handleSelectionUpdate(selection) {
 }
 
 let detailsInitialized = false;
+let projectTitleBound = false;
+
+function countBuildingSpaces(spaces) {
+    if (!Array.isArray(spaces)) return 0;
+    let total = 0;
+    const walk = (list) => {
+        list.forEach((space) => {
+            if (!space) return;
+            total += 1;
+            if (Array.isArray(space.children) && space.children.length) {
+                walk(space.children);
+            }
+        });
+    };
+    walk(spaces);
+    return total;
+}
+
+function countSegments(project) {
+    if (state.topologyIndex && state.topologyIndex.segmentsByLine) {
+        let total = 0;
+        state.topologyIndex.segmentsByLine.forEach((segmentMap) => {
+            total += segmentMap.size;
+        });
+        return total;
+    }
+    const devices = Array.isArray(project.devices) ? project.devices : [];
+    const segmentKeys = new Set();
+    devices.forEach((device) => {
+        const address = String(device.individual_address || '');
+        const parts = address.split('.');
+        if (parts.length < 2) return;
+        const lineKey = `${parts[0]}.${parts[1]}`;
+        const number = device.segment_number != null ? String(device.segment_number) : '';
+        const id = device.segment_id != null ? String(device.segment_id) : '';
+        const segKey = number || id || '0';
+        segmentKeys.add(`${lineKey}|${segKey}`);
+    });
+    return segmentKeys.size;
+}
+
+function countGroupLinks(project) {
+    const devices = Array.isArray(project.devices) ? project.devices : [];
+    let total = 0;
+    devices.forEach((device) => {
+        if (Array.isArray(device.group_links) && device.group_links.length) {
+            total += device.group_links.length;
+            return;
+        }
+        if (typeof device._link_count === 'number') {
+            total += device._link_count;
+        }
+    });
+    return total;
+}
+
+function countAreasLines(project) {
+    const areas = Array.isArray(project.areas) ? project.areas.length : 0;
+    const lines = Array.isArray(project.lines) ? project.lines.length : 0;
+    if (areas > 0 && lines > 0) {
+        return { areas, lines };
+    }
+    const devices = Array.isArray(project.devices) ? project.devices : [];
+    const areaSet = new Set();
+    const lineSet = new Set();
+    devices.forEach((device) => {
+        const address = String(device.individual_address || '');
+        const parts = address.split('.');
+        if (parts.length < 2) return;
+        const area = parts[0];
+        const line = parts[1];
+        if (area) areaSet.add(area);
+        if (area && line) lineSet.add(`${area}.${line}`);
+    });
+    return {
+        areas: areas || areaSet.size,
+        lines: lines || lineSet.size
+    };
+}
+
+function buildProjectEntity() {
+    const project = state.currentProject;
+    if (!project) return null;
+    const info = project.project_info || project.projectInfo || null;
+    const name = project.project_name || (info && info.name) || 'Project';
+    const subtitleParts = [];
+    if (info && info.project_number) subtitleParts.push(`Project ${info.project_number}`);
+    if (info && info.project_type) subtitleParts.push(info.project_type);
+    const areaLineCounts = countAreasLines(project);
+    const stats = {
+        areas: areaLineCounts.areas,
+        lines: areaLineCounts.lines,
+        segments: countSegments(project),
+        devices: Array.isArray(project.devices) ? project.devices.length : 0,
+        group_addresses: Array.isArray(project.group_addresses) ? project.group_addresses.length : 0,
+        group_links: countGroupLinks(project),
+        locations: countBuildingSpaces(project.locations)
+    };
+    return {
+        kind: 'project',
+        id: state.currentProjectKey || name,
+        title: name,
+        subtitle: subtitleParts.join(' · '),
+        info,
+        stats,
+        graph_counts: project._graph_counts || null,
+        cache: state.cacheStats || null,
+        project_key: state.currentProjectKey || ''
+    };
+}
 
 function ensureDetailsBindings() {
     if (detailsInitialized) return;
@@ -48,6 +158,23 @@ function ensureDetailsBindings() {
     if (!dom || !dom.detailsContent) return;
     registerSelectionListener(handleSelectionUpdate);
     bindDetailsInteractions();
+    if (dom.projectTitle && !projectTitleBound) {
+        dom.projectTitle.setAttribute('role', 'button');
+        dom.projectTitle.setAttribute('tabindex', '0');
+        dom.projectTitle.addEventListener('click', () => {
+            const entity = buildProjectEntity();
+            if (!entity) return;
+            setSelection({ kind: entity.kind, id: entity.id || '', address: '', entity, source: 'project' });
+        });
+        dom.projectTitle.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            const entity = buildProjectEntity();
+            if (!entity) return;
+            setSelection({ kind: entity.kind, id: entity.id || '', address: '', entity, source: 'project' });
+        });
+        projectTitleBound = true;
+    }
     detailsInitialized = true;
 }
 

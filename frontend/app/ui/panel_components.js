@@ -21,7 +21,7 @@ export function addRow(section, label, value, options = {}) {
 
     const valueEl = document.createElement('div');
     valueEl.className = 'panel-value';
-    valueEl.textContent = String(value);
+    valueEl.textContent = sanitizePanelValue(value);
     if (options.className) {
         valueEl.classList.add(options.className);
     }
@@ -34,6 +34,24 @@ export function addRow(section, label, value, options = {}) {
 
     row.appendChild(valueEl);
     section.appendChild(row);
+}
+
+function sanitizePanelValue(value) {
+    const text = String(value);
+    if (!text) return text;
+    if (!text.startsWith('{\\rtf')) return text;
+    // Minimal RTF cleanup: strip control words/braces.
+    let cleaned = text;
+    cleaned = cleaned.replace(/\\par[d]?/gi, '\n');
+    cleaned = cleaned.replace(/\\'[0-9a-fA-F]{2}/g, (m) => {
+        const hex = m.slice(2);
+        const code = parseInt(hex, 16);
+        return Number.isFinite(code) ? String.fromCharCode(code) : '';
+    });
+    cleaned = cleaned.replace(/\\[a-zA-Z]+-?\d* ?/g, '');
+    cleaned = cleaned.replace(/[{}]/g, '');
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    return cleaned || text;
 }
 
 export function addRowNode(section, label, node) {

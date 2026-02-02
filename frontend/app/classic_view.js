@@ -65,6 +65,8 @@ let tableColumnKeys = [];
 let tableColumnSignature = '';
 let tableColumnWidths = new Map();
 let lastTableColumns = [];
+let tableColumnVisibility = new Map();
+let tableVisibleColumnKeys = [];
 let tableSortedRows = [];
 let tableRowPositions = new Map();
 let tableRowHeight = 28;
@@ -109,7 +111,9 @@ function ensureInitialColumnWidths(sampleRow) {
         const base = headerTextW + 10 + 26 + 10;
         const withSample = Math.max(base, Math.min(sampleTextW + 10 + 26 + 10, 380));
         const width = Math.max(TABLE_COLUMN_MIN_WIDTH, Math.ceil(Math.min(withSample, 520)));
-        tableColumnWidths.set(idx, width);
+        if (key) {
+            tableColumnWidths.set(key, width);
+        }
     }
 }
 
@@ -225,6 +229,8 @@ export function resetClassicViewCaches() {
     tableColumnSignature = '';
     tableColumnWidths = new Map();
     lastTableColumns = [];
+    tableColumnVisibility = new Map();
+    tableVisibleColumnKeys = [];
     tableSortedRows = [];
     tableRowHeight = 28;
     tableVirtualMode = false;
@@ -1960,6 +1966,7 @@ function renderTableHeader(columns, sampleRow, keepOrder = false) {
         tableColumnSignature = signature;
         tableColumnWidths = new Map();
         tableColumnKeys = [];
+        tableColumnVisibility = new Map();
     }
     if (!keepOrder || tableColumnLabels.length !== columns.length - 2) {
         tableColumnLabels = columns.slice(2);
@@ -1967,12 +1974,29 @@ function renderTableHeader(columns, sampleRow, keepOrder = false) {
     if (sampleRow && sampleRow.data) {
         tableColumnKeys = Object.keys(sampleRow.data);
     }
+    if (tableColumnKeys.length) {
+        const keySet = new Set(tableColumnKeys);
+        if (!tableColumnVisibility.size) {
+            tableColumnKeys.forEach((key) => tableColumnVisibility.set(key, true));
+        } else {
+            tableColumnVisibility.forEach((_value, key) => {
+                if (!keySet.has(key)) tableColumnVisibility.delete(key);
+            });
+            tableColumnKeys.forEach((key) => {
+                if (!tableColumnVisibility.has(key)) tableColumnVisibility.set(key, true);
+            });
+        }
+    }
     tableSortState = { index: null, direction: 'asc' };
 
-    const headers = tableColumnLabels.map((label, idx) => {
+    const visibility = tableColumnVisibility;
+    const visibleColumns = getVisibleColumns(visibility);
+    tableVisibleColumnKeys = visibleColumns.map((col) => col.key);
+
+    const headers = visibleColumns.map((col, visibleIdx) => {
         const cls = 'sortable';
-        const handle = `<span class="col-resizer" data-col-index="${idx}"></span>`;
-        return `<th class="${cls}" data-sort-index="${idx}" draggable="true"><span class="th-label">${label}</span>${handle}</th>`;
+        const handle = `<span class="col-resizer" data-col-index="${visibleIdx}"></span>`;
+        return `<th class="${cls}" data-sort-index="${visibleIdx}" data-sort-key="${col.key}" draggable="true"><span class="th-label">${col.label}</span>${handle}</th>`;
     });
     const headCells = [
         '<th></th>',
@@ -1987,6 +2011,18 @@ function renderTableHeader(columns, sampleRow, keepOrder = false) {
     applyColumnWidths();
 }
 
+function getVisibleColumns(visibility = tableColumnVisibility) {
+    const visibleColumns = [];
+    tableColumnLabels.forEach((label, idx) => {
+        const key = tableColumnKeys[idx];
+        const isVisible = key ? visibility.get(key) !== false : true;
+        if (isVisible) {
+            visibleColumns.push({ key, label, index: idx });
+        }
+    });
+    return visibleColumns;
+}
+
 function renderTableBody(data) {
     const dom = getDom();
     if (!dom || !dom.tableBody) return;
@@ -1996,6 +2032,9 @@ function renderTableBody(data) {
         if (lastTableColumns.length) {
             renderTableHeader(lastTableColumns, rows[0]);
         }
+    }
+    if (!tableVisibleColumnKeys.length && tableColumnKeys.length) {
+        tableVisibleColumnKeys = tableColumnKeys.slice();
     }
     tableSourceData = rows;
     selectedTableRow = null;
@@ -2152,7 +2191,9 @@ function buildTableRow(row, index) {
     tr.appendChild(iconCell);
 
     const data = row.data || {};
-    const keys = tableColumnKeys.length ? tableColumnKeys : Object.keys(data);
+    const keys = tableVisibleColumnKeys.length
+        ? tableVisibleColumnKeys
+        : (tableColumnKeys.length ? tableColumnKeys : Object.keys(data));
     const cells = keys.map((key) => data[key]);
     cells.forEach((value, idx) => {
         const key = keys[idx];
@@ -2191,6 +2232,9 @@ function applyTableCellNavigation(row, key, value, cell) {
     } else if (row.kind === 'line' && key === 'line') {
         navKind = 'topology-line';
         navValue = String(value || '');
+    } else if (row.kind === 'segment' && key === 'segment') {
+        navKind = 'topology-segment';
+        navValue = row.raw && row.raw.key ? String(row.raw.key) : String(value || '');
     } else if (row.kind === 'group-object') {
         if (key === 'deviceAddress') {
             navKind = 'device';
@@ -2256,8 +2300,12 @@ function applyTableSort(rows) {
 function exportTableCsv() {
     const rows = applyTableSort(applyTableSearch(tableSourceData || []));
     if (!rows.length || !tableColumnLabels.length) return;
-    const keys = tableColumnKeys.length ? tableColumnKeys : Object.keys(rows[0].data || {});
-    const header = tableColumnLabels;
+    const keys = tableVisibleColumnKeys.length
+        ? tableVisibleColumnKeys
+        : (tableColumnKeys.length ? tableColumnKeys : Object.keys(rows[0].data || {}));
+    const header = tableVisibleColumnKeys.length
+        ? getVisibleColumns().map((col) => col.label)
+        : tableColumnLabels;
     const lines = [];
     lines.push(header.map(escapeCsv).join(','));
     rows.forEach((row) => {
@@ -2285,7 +2333,7 @@ function escapeCsv(value) {
 }
 
 function getTableValue(row, index) {
-    const key = tableColumnKeys[index];
+    const key = tableVisibleColumnKeys.length ? tableVisibleColumnKeys[index] : tableColumnKeys[index];
     if (key && row.data) {
         return row.data[key] != null ? row.data[key] : '';
     }
@@ -2590,6 +2638,8 @@ function registerNavigationHandlers() {
             navigateToTopologyArea(detail.address || '');
         } else if (detail.type === 'topology-line') {
             navigateToTopologyLine(detail.address || '');
+        } else if (detail.type === 'topology-segment') {
+            navigateToTopologySegment(detail.address || '');
         }
     };
     onNavigate(handler);
@@ -2726,6 +2776,26 @@ function navigateToTopologyLine(lineKey) {
     });
 }
 
+function navigateToTopologySegment(segmentKey) {
+    if (!segmentKey) return;
+    switchViewType('topology', true);
+    switchContentTab('table');
+    const selector = buildTreeSelector('topology-segment', segmentKey);
+    const attempt = () => {
+        const treeItem = findTreeItemBySelector(selector, null);
+        if (treeItem) {
+            applyTreeSelection(treeItem, { scrollIntoView: true });
+            return true;
+        }
+        return false;
+    };
+    if (attempt()) return;
+    requestAnimationFrame(() => {
+        if (attempt()) return;
+        setTimeout(attempt, 50);
+    });
+}
+
 function selectGroupObjectInTable(criteria) {
     if (!criteria) return;
     const number = criteria.number ? String(criteria.number) : '';
@@ -2792,6 +2862,10 @@ function buildTreeSelector(kind, value) {
         const areaEsc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(parsed.area) : String(parsed.area).replace(/"/g, '\\"');
         const lineEsc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(parsed.line) : String(parsed.line).replace(/"/g, '\\"');
         return `.tree-item[data-kind="line"][data-area="${areaEsc}"][data-line="${lineEsc}"]`;
+    }
+    if (kind === 'topology-segment') {
+        const segEsc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/"/g, '\\"');
+        return `.tree-item[data-kind="segment"][data-segment="${segEsc}"]`;
     }
     return '';
 }
@@ -3138,12 +3212,55 @@ function initializeTableSorting() {
         if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return;
         reorderColumns(from, to);
     });
+
+    dom.tableHead.addEventListener('contextmenu', (e) => {
+        const target = e.target.closest('th');
+        if (!target) return;
+        e.preventDefault();
+        openColumnVisibilityMenu(e.clientX, e.clientY);
+    });
+}
+
+function openColumnVisibilityMenu(x, y) {
+    if (!tableColumnKeys.length || !tableColumnLabels.length) return;
+    const items = [];
+    items.push({
+        label: 'Show all columns',
+        action: () => {
+            tableColumnKeys.forEach((key) => tableColumnVisibility.set(key, true));
+            renderTableHeader(lastTableColumns, null, true);
+            renderTableBody(tableSourceData);
+        }
+    });
+    items.push({ type: 'separator' });
+
+    const visible = getVisibleColumns();
+    const visibleCount = visible.length;
+    tableColumnLabels.forEach((label, idx) => {
+        const key = tableColumnKeys[idx];
+        if (!key) return;
+        const isVisible = tableColumnVisibility.get(key) !== false;
+        const prefix = isVisible ? '✓' : '○';
+        items.push({
+            label: `${prefix} ${label}`,
+            action: () => {
+                if (isVisible && visibleCount <= 1) return;
+                tableColumnVisibility.set(key, !isVisible);
+                renderTableHeader(lastTableColumns, null, true);
+                renderTableBody(tableSourceData);
+            }
+        });
+    });
+
+    openContextMenu(items, { x, y });
 }
 
 function setColumnWidth(index, width) {
     const dom = getDom();
     if (!dom || !dom.tableHead) return;
-    tableColumnWidths.set(index, width);
+    const key = tableVisibleColumnKeys.length ? tableVisibleColumnKeys[index] : tableColumnKeys[index];
+    if (!key) return;
+    tableColumnWidths.set(key, width);
     applyColumnWidths();
 }
 
@@ -3152,7 +3269,9 @@ function applyColumnWidths() {
     if (!dom || !dom.tableHead || !dom.tableBody) return;
     const table = dom.mainTable;
     const colgroup = table ? table.querySelector('colgroup') : null;
-    tableColumnWidths.forEach((width, index) => {
+    tableVisibleColumnKeys.forEach((key, index) => {
+        const width = tableColumnWidths.get(key);
+        if (!width) return;
         const col = colgroup && colgroup.children ? colgroup.children[index + 2] : null;
         if (col) col.style.width = `${width}px`;
         const headCell = dom.tableHead.querySelector(`th[data-sort-index="${index}"]`);
@@ -3168,23 +3287,15 @@ function applyColumnWidths() {
 function reorderColumns(from, to) {
     if (from < 0 || to < 0) return;
     if (!tableColumnKeys.length || !tableColumnLabels.length) return;
-    const key = tableColumnKeys.splice(from, 1)[0];
-    const label = tableColumnLabels.splice(from, 1)[0];
-    tableColumnKeys.splice(to, 0, key);
-    tableColumnLabels.splice(to, 0, label);
-    if (tableColumnWidths.size) {
-        const widthArr = [];
-        const total = tableColumnLabels.length;
-        for (let i = 0; i < total; i += 1) {
-            widthArr[i] = tableColumnWidths.get(i);
-        }
-        const moved = widthArr.splice(from, 1)[0];
-        widthArr.splice(to, 0, moved);
-        tableColumnWidths = new Map();
-        widthArr.forEach((width, idx) => {
-            if (width != null) tableColumnWidths.set(idx, width);
-        });
-    }
+    const visible = getVisibleColumns();
+    if (!visible.length) return;
+    if (from >= visible.length || to >= visible.length) return;
+    const fromIndex = visible[from].index;
+    const toIndex = visible[to].index;
+    const key = tableColumnKeys.splice(fromIndex, 1)[0];
+    const label = tableColumnLabels.splice(fromIndex, 1)[0];
+    tableColumnKeys.splice(toIndex, 0, key);
+    tableColumnLabels.splice(toIndex, 0, label);
     renderTableHeader(lastTableColumns, null, true);
     renderTableBody(tableSourceData);
 }

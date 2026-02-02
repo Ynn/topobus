@@ -4,11 +4,60 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnxProjectData {
     pub project_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_info: Option<ProjectInfo>,
     pub areas: Vec<AreaInfo>,
     pub lines: Vec<LineInfo>,
     pub devices: Vec<DeviceInfo>,
     pub group_addresses: Vec<GroupAddressInfo>,
     pub locations: Vec<BuildingSpace>,
+}
+
+/// Project overview metadata from project.xml
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProjectInfo {
+    pub name: Option<String>,
+    pub project_type: Option<String>,
+    pub project_number: Option<String>,
+    pub contract_number: Option<String>,
+    pub description: Option<String>,
+    pub completion_status: Option<String>,
+    pub archived_version: Option<String>,
+    pub project_tracing_password: Option<String>,
+    pub security_mode: Option<String>,
+    pub bcu_key: Option<String>,
+    pub codepage: Option<String>,
+    pub last_modified: Option<String>,
+    pub project_size: Option<String>,
+    pub group_address_style: Option<String>,
+    pub file_size: Option<String>,
+    pub file_last_modified: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<ProjectTag>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<ProjectAttachment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<ProjectHistoryEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectTag {
+    pub text: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectAttachment {
+    pub filename: String,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectHistoryEntry {
+    pub date: Option<String>,
+    pub user: Option<String>,
+    pub text: Option<String>,
+    pub detail: Option<String>,
 }
 
 /// Information about a KNX area
@@ -235,6 +284,12 @@ pub struct GroupAddressInfo {
     pub comment: Option<String>,
     /// Datapoint type (e.g., "DPST-1-1" for switching)
     pub datapoint_type: Option<String>,
+    /// Security setting (Auto/On/Off) if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<String>,
+    /// Group address security key (base64) if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security_key: Option<String>,
     /// List of device individual addresses linked to this group address
     pub linked_devices: Vec<String>,
 }

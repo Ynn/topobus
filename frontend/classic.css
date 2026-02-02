@@ -411,6 +411,16 @@ body {
     color: var(--text-primary);
 }
 
+#project-title {
+    cursor: pointer;
+}
+
+#project-title:hover,
+#project-title:focus {
+    color: var(--primary-blue);
+    text-decoration: underline;
+}
+
 /* Tabs Bar - Modern Design */
 .tabs-bar {
     background: var(--bg-white);
@@ -1054,6 +1064,7 @@ th:nth-child(2) {
     background: var(--border-color);
     opacity: 0.6;
 }
+
 
 td {
     padding: 5px 10px;

@@ -8,6 +8,18 @@ pub enum GroupAddressStyle {
     Free,       // 16-bit identifier
 }
 
+#[allow(dead_code)]
+pub fn parse_group_address_style(value: &str) -> GroupAddressStyle {
+    let raw = value.trim().to_lowercase();
+    if raw.contains("two") || raw.contains("2") {
+        return GroupAddressStyle::TwoLevel;
+    }
+    if raw.contains("free") || raw.contains("16") {
+        return GroupAddressStyle::Free;
+    }
+    GroupAddressStyle::ThreeLevel
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GroupAddress {
     pub value: u16,

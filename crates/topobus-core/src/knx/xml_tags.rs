@@ -1,4 +1,11 @@
 pub const PROJECT_INFORMATION: &str = "ProjectInformation";
+pub const TAGS: &str = "Tags";
+pub const TAG: &str = "Tag";
+pub const USER_FILES: &str = "UserFiles";
+pub const USER_FILE: &str = "UserFile";
+pub const HISTORY_ENTRIES: &str = "HistoryEntries";
+pub const HISTORY_ENTRY: &str = "HistoryEntry";
+pub const INSTALLATION: &str = "Installation";
 pub const AREA: &str = "Area";
 pub const LINE: &str = "Line";
 pub const SEGMENT: &str = "Segment";

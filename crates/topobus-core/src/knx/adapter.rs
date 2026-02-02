@@ -1,7 +1,7 @@
 use super::model::*;
 use crate::knx::parsers::device::extract_devices;
 use crate::knx::parsers::group_addresses::extract_group_addresses;
-use crate::knx::parsers::project::extract_project_name;
+use crate::knx::parsers::project::{extract_project_info, extract_project_name};
 use crate::knx::parsers::topology::extract_topology_metadata;
 use crate::knx::xml_tags;
 use crate::knx::xml_utils::attr_value;
@@ -97,8 +97,13 @@ fn load_knxproj_reader<R: Read + Seek>(
     let manufacturer_names = read_manufacturer_names(&mut zip)?;
 
     let project_name = extract_project_name(&project_doc);
+    let project_info = extract_project_info(&project_doc);
     let (areas, lines) = extract_topology_metadata(&data_doc)?;
-    let (mut group_addresses, group_address_by_id) = extract_group_addresses(&data_doc)?;
+    let group_address_style = project_info
+        .as_ref()
+        .and_then(|info| info.group_address_style.as_deref());
+    let (mut group_addresses, group_address_by_id) =
+        extract_group_addresses(&data_doc, group_address_style)?;
 
     let devices = extract_devices(
         &data_doc,
@@ -150,6 +155,7 @@ fn load_knxproj_reader<R: Read + Seek>(
 
     Ok(KnxProjectData {
         project_name,
+        project_info,
         areas,
         lines,
         devices,
