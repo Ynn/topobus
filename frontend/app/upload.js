@@ -8,6 +8,17 @@ import { ApiError, NetworkError } from './utils/api_client.js';
 import { stateManager } from './state_manager.js';
 import { prepareForProjectLoad } from './project_cleanup.js';
 import { offloadDevicePayloads, offloadProjectGraphs, getProjectCacheStats } from './cache/project_payload_cache.js';
+import { loadLastProjectFile, saveLastProjectFile } from './project_file_store.js';
+
+let restoreAttempted = false;
+
+function publishRestoreStatus(status, message = '') {
+    const detail = { status, message: String(message || '') };
+    if (typeof window !== 'undefined') {
+        window.__topobusRestoreStatus = detail;
+        window.dispatchEvent(new CustomEvent('topobus:restore-status', { detail }));
+    }
+}
 
 export function setupUploadHandlers() {
     const dom = getDom();
@@ -102,14 +113,66 @@ export function setupPasswordControls() {
     });
 }
 
-async function uploadFile(file) {
+export async function restoreLastProjectFromStorage() {
+    if (restoreAttempted) {
+        publishRestoreStatus('skipped', 'restore already attempted');
+        return false;
+    }
+    restoreAttempted = true;
+
+    const dom = getDom();
+    if (!dom || state.currentProject) {
+        publishRestoreStatus('skipped', 'project already loaded');
+        return false;
+    }
+    const title = dom.projectTitle ? String(dom.projectTitle.textContent || '').trim() : '';
+    if (title && title !== 'No Project Loaded') {
+        publishRestoreStatus('skipped', 'ui already initialized with project');
+        return false;
+    }
+
+    try {
+        const snapshot = await loadLastProjectFile();
+        if (!snapshot || !snapshot.file) {
+            publishRestoreStatus('none', 'no saved project snapshot');
+            return false;
+        }
+        if (!isKnxprojFilename(snapshot.file.name)) {
+            publishRestoreStatus('failed', 'saved file is not a .knxproj');
+            return false;
+        }
+        publishRestoreStatus('loading', `restoring ${snapshot.file.name}`);
+        const restored = await uploadFile(snapshot.file, {
+            restored: true,
+            allowServerFallback: false,
+            silentError: true
+        });
+        if (restored) {
+            publishRestoreStatus('restored', `restored ${snapshot.file.name}`);
+        } else {
+            publishRestoreStatus('failed', 'automatic restore failed');
+        }
+        return restored;
+    } catch (error) {
+        publishRestoreStatus('failed', error && error.message ? error.message : 'unknown restore error');
+        console.warn('Failed to restore last project from storage.', error);
+        return false;
+    }
+}
+
+async function uploadFile(file, options = {}) {
     stateManager.setState('lastFile', file);
     const dom = getDom();
     if (!dom) return;
+    const persistPromise = saveLastProjectFile(file).catch(() => false);
 
     // UI Loading State
     if (dom.uploadZone) dom.uploadZone.classList.add('hidden');
-    if (dom.loadingMessage) dom.loadingMessage.textContent = 'Loading project...';
+    if (dom.loadingMessage) {
+        dom.loadingMessage.textContent = options && options.restored
+            ? 'Restoring project after update...'
+            : 'Loading project...';
+    }
     if (dom.loading) dom.loading.classList.remove('hidden');
     prepareForProjectLoad();
 
@@ -118,7 +181,9 @@ async function uploadFile(file) {
         const password = dom.passwordInput ? dom.passwordInput.value.trim() : '';
 
         // Parsing
-        const data = await parseKnxprojFile(file, password || null);
+        const data = await parseKnxprojFile(file, password || null, {
+            allowServerFallback: options && options.allowServerFallback !== false
+        });
         if (data && typeof data === 'object') {
             const info = data.project_info || {};
             if (!data.project_info) {
@@ -179,9 +244,18 @@ async function uploadFile(file) {
         if (dom.graphView && dom.graphView.style.display !== 'none') {
             applyFiltersAndRender();
         }
+        await persistPromise;
+        return true;
 
     } catch (error) {
+        if (options && options.silentError) {
+            if (dom.loading) dom.loading.classList.add('hidden');
+            if (dom.uploadZone) dom.uploadZone.classList.add('hidden');
+            console.warn('Automatic project restore failed; keeping app idle.', error);
+            return false;
+        }
         handleUploadError(error);
+        return false;
     }
 }
 

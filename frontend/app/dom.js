@@ -79,6 +79,7 @@ export function initDom() {
         settingsSave: document.getElementById('settings-save'),
         settingsCancel: document.getElementById('settings-cancel'),
         settingsReset: document.getElementById('settings-reset'),
+        settingsResetOffline: document.getElementById('settings-reset-offline'),
 
         // Buttons / Controls
         btnOpenProject: document.getElementById('btn-open-project'),

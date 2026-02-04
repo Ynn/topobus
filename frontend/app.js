@@ -1,4 +1,5 @@
 import { initApp } from './app/index.js';
+import { getStoredProjectMeta, isProjectFilePersistenceSupported } from './app/project_file_store.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
@@ -8,335 +9,576 @@ if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         const refreshBtn = document.getElementById('refresh-btn');
         const updateToast = document.getElementById('update-toast');
+        const updateToastTitle = document.getElementById('update-toast-title');
+        const updateToastDetails = document.getElementById('update-toast-details');
         const updateToastReload = document.getElementById('update-toast-reload');
         const updateToastClose = document.getElementById('update-toast-close');
-        let userRequestedReload = false;
+        const aboutVersionRunning = document.getElementById('about-version-running');
+        const aboutVersionLatest = document.getElementById('about-version-latest');
+        const aboutVersionPending = document.getElementById('about-version-pending');
+        const aboutRestoreStatus = document.getElementById('about-restore-status');
+
+        const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+        const APPLY_TIMEOUT_MS = 8000;
+
+        let applyRequested = false;
+        let applyingUpdate = false;
+        let reloadRecommended = false;
         let waitingWorker = null;
         let fallbackReloadTimer = null;
         let swRegistration = null;
+        let updateCheckTimer = null;
+        let hiddenToastBuildId = null;
+        let latestRemoteBuildId = null;
+        let pendingBuildId = null;
+        let activeControllerBuildId = extractBuildIdFromWorker(navigator.serviceWorker.controller);
+        let restoreStatus = (typeof window !== 'undefined' && window.__topobusRestoreStatus) || {
+            status: 'idle',
+            message: 'not attempted'
+        };
 
-        const STORAGE_SEEN_BUILD_ID = 'topobus_build_id_seen';
-        const STORAGE_PENDING_BUILD_ID = 'topobus_build_id_pending';
+        function extractBuildIdFromScriptUrl(scriptUrl) {
+            if (!scriptUrl) return null;
+            try {
+                const url = new URL(scriptUrl, window.location.href);
+                return (url.searchParams.get('build') || '').trim() || null;
+            } catch {
+                return null;
+            }
+        }
 
-        const setUpdateBadge = (enabled) => {
+        function extractBuildIdFromWorker(worker) {
+            if (!worker || !worker.scriptURL) return null;
+            return extractBuildIdFromScriptUrl(worker.scriptURL);
+        }
+
+        function getActiveControllerBuildId() {
+            const fromController = extractBuildIdFromWorker(navigator.serviceWorker.controller);
+            if (fromController) {
+                activeControllerBuildId = fromController;
+                return fromController;
+            }
+            return activeControllerBuildId || null;
+        }
+
+        function formatBuildId(value, fallback = 'unknown') {
+            return value && String(value).trim() ? String(value).trim() : fallback;
+        }
+
+        function formatBytes(size) {
+            if (!Number.isFinite(size) || size < 0) return '';
+            if (size < 1024) return `${size} B`;
+            const kb = size / 1024;
+            if (kb < 1024) return `${kb.toFixed(1)} KB`;
+            const mb = kb / 1024;
+            return `${mb.toFixed(1)} MB`;
+        }
+
+        function setToast({ visible, title, details, actionLabel = 'Reload', actionDisabled = false }) {
+            if (!updateToast) return;
+            if (updateToastTitle) {
+                updateToastTitle.textContent = title || 'Update available';
+            }
+            if (updateToastDetails) {
+                updateToastDetails.textContent = details || '';
+            }
+            if (updateToastReload) {
+                updateToastReload.textContent = actionLabel;
+                updateToastReload.disabled = !!actionDisabled;
+            }
+            updateToast.classList.toggle('hidden', !visible);
+        }
+
+        function setUpdateBadge(enabled) {
             if (!refreshBtn) return;
             refreshBtn.classList.toggle('update-available', !!enabled);
-        };
+        }
 
-        const showToast = () => {
-            if (!updateToast) return;
-            updateToast.classList.remove('hidden');
-        };
+        function setRefreshState({ hasPending = false, applying = false } = {}) {
+            if (!refreshBtn) return;
+            refreshBtn.disabled = !!applying;
+            refreshBtn.classList.toggle('update-applying', !!applying);
+            setUpdateBadge(!!hasPending || !!reloadRecommended);
 
-        const hideToast = () => {
-            if (!updateToast) return;
-            updateToast.classList.add('hidden');
-        };
-
-        const showUpdateAvailable = (worker) => {
-            waitingWorker = worker || waitingWorker;
-            if (refreshBtn) {
-                refreshBtn.disabled = false;
+            if (applying) {
+                refreshBtn.title = 'Applying update...';
+                return;
+            }
+            if (reloadRecommended) {
+                refreshBtn.title = 'Reload required to finalize update';
+                return;
+            }
+            if (hasPending) {
                 refreshBtn.title = 'New version available - click to reload';
+                return;
             }
-            setUpdateBadge(true);
-            showToast();
-        };
+            refreshBtn.title = 'Reload';
+        }
 
-        const hideUpdateAvailable = () => {
+        function updateHelpVersionInfo() {
+            const running = getActiveControllerBuildId();
+            if (aboutVersionRunning) {
+                aboutVersionRunning.textContent = formatBuildId(running);
+            }
+            if (aboutVersionLatest) {
+                aboutVersionLatest.textContent = formatBuildId(latestRemoteBuildId);
+            }
+            if (aboutVersionPending) {
+                if (reloadRecommended) {
+                    aboutVersionPending.textContent = 'reload required';
+                } else {
+                    aboutVersionPending.textContent = pendingBuildId
+                        ? formatBuildId(pendingBuildId)
+                        : 'none';
+                }
+            }
+            if (aboutRestoreStatus) {
+                aboutRestoreStatus.textContent = formatRestoreStatus(restoreStatus);
+                aboutRestoreStatus.title = restoreStatus && restoreStatus.message
+                    ? String(restoreStatus.message)
+                    : '';
+            }
+        }
+
+        function formatRestoreStatus(value) {
+            const status = value && value.status ? String(value.status) : 'idle';
+            if (status === 'restored') return 'restored';
+            if (status === 'loading') return 'restoring...';
+            if (status === 'none') return 'no saved project';
+            if (status === 'failed') return 'failed';
+            if (status === 'skipped') return 'skipped';
+            return 'not attempted';
+        }
+
+        function handleRestoreStatusEvent(event) {
+            const detail = event && event.detail ? event.detail : null;
+            if (!detail || typeof detail !== 'object') return;
+            restoreStatus = {
+                status: detail.status || 'idle',
+                message: detail.message || ''
+            };
+            updateHelpVersionInfo();
+        }
+
+        function isKnownRemoteUpdate() {
+            const active = getActiveControllerBuildId();
+            if (!latestRemoteBuildId || !active) return false;
+            return latestRemoteBuildId !== active;
+        }
+
+        function rememberHiddenToast() {
+            hiddenToastBuildId = pendingBuildId || (reloadRecommended ? '__reload_required__' : latestRemoteBuildId);
+        }
+
+        function shouldShowToastForCurrentState() {
+            if (reloadRecommended) {
+                return hiddenToastBuildId !== '__reload_required__';
+            }
+            if (!pendingBuildId) return true;
+            return hiddenToastBuildId !== pendingBuildId;
+        }
+
+        function showUpdateAvailable(worker, reason = 'available') {
+            reloadRecommended = false;
+            waitingWorker = worker || waitingWorker;
+            const fromWorker = extractBuildIdFromWorker(waitingWorker);
+            const activeBuildId = getActiveControllerBuildId();
+            if (fromWorker) {
+                pendingBuildId = fromWorker;
+            } else if (!pendingBuildId && isKnownRemoteUpdate()) {
+                pendingBuildId = latestRemoteBuildId;
+            }
+
+            // Ignore false-positive updates where waiting/remote build equals current build.
+            if (pendingBuildId && activeBuildId && pendingBuildId === activeBuildId) {
+                waitingWorker = null;
+                pendingBuildId = null;
+                setRefreshState({ hasPending: false, applying: applyingUpdate });
+                setToast({
+                    visible: false,
+                    title: '',
+                    details: '',
+                    actionLabel: 'Reload',
+                    actionDisabled: false
+                });
+                updateHelpVersionInfo();
+                return;
+            }
+
+            updateHelpVersionInfo();
+            setRefreshState({ hasPending: true, applying: applyingUpdate });
+
+            if (!shouldShowToastForCurrentState() || applyingUpdate) {
+                return;
+            }
+
+            const active = formatBuildId(getActiveControllerBuildId());
+            const pending = formatBuildId(pendingBuildId, 'new build');
+            if (active !== 'unknown' && pending !== 'new build' && pending === active) {
+                waitingWorker = null;
+                pendingBuildId = null;
+                setRefreshState({ hasPending: false, applying: applyingUpdate });
+                setToast({
+                    visible: false,
+                    title: '',
+                    details: '',
+                    actionLabel: 'Reload',
+                    actionDisabled: false
+                });
+                updateHelpVersionInfo();
+                return;
+            }
+            const details = reason === 'downloading'
+                ? `Detected ${pending}. Downloading update in background...`
+                : `Current build ${active} → ${pending}`;
+            setToast({
+                visible: true,
+                title: reason === 'downloading' ? 'Update detected' : 'Update ready',
+                details,
+                actionLabel: 'Reload',
+                actionDisabled: false
+            });
+        }
+
+        function clearPendingState() {
             waitingWorker = null;
-            if (refreshBtn) {
-                refreshBtn.disabled = false;
-                refreshBtn.title = 'Reload';
-            }
-            setUpdateBadge(false);
-            hideToast();
-        };
-
-        const isSafeToReload = () => {
-            const title = document.getElementById('project-title');
-            const text = title ? String(title.textContent || '').trim() : '';
-            return text === '' || text === 'No Project Loaded';
-        };
-
-        const forceApplyUpdate = async () => {
-            userRequestedReload = true;
-            try {
-                const pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
-                if (pending) {
-                    localStorage.setItem(STORAGE_SEEN_BUILD_ID, pending);
-                    localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
-                }
-            } catch {}
-
-            try {
-                if (waitingWorker) {
-                    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-                    fallbackReloadTimer = setTimeout(() => window.location.reload(), 4000);
-                    return;
-                }
-
-                const registration = swRegistration || (await navigator.serviceWorker.getRegistration());
-                if (!registration) {
-                    window.location.reload();
-                    return;
-                }
-
-                await registration.update().catch(() => {});
-                if (registration.waiting) {
-                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                    fallbackReloadTimer = setTimeout(() => window.location.reload(), 4000);
-                    return;
-                }
-
-                window.location.reload();
-            } catch {
-                window.location.reload();
-            }
-        };
-
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-            // Only reload when the user explicitly accepted the update.
-            if (!userRequestedReload) return;
-            if (fallbackReloadTimer) {
-                clearTimeout(fallbackReloadTimer);
-                fallbackReloadTimer = null;
-            }
-            window.location.reload();
-        });
-
-        if (updateToastReload) {
-            updateToastReload.addEventListener('click', () => {
-                refreshBtn?.click();
+            pendingBuildId = null;
+            applyRequested = false;
+            applyingUpdate = false;
+            reloadRecommended = false;
+            hiddenToastBuildId = null;
+            setRefreshState({ hasPending: false, applying: false });
+            setToast({
+                visible: false,
+                title: '',
+                details: '',
+                actionLabel: 'Reload',
+                actionDisabled: false
             });
+            updateHelpVersionInfo();
         }
 
-        if (updateToastClose) {
-            updateToastClose.addEventListener('click', () => {
-                // Keep the badge (update still pending), just hide the toast.
-                hideToast();
-            });
-        }
-
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', async () => {
-                userRequestedReload = true;
-                refreshBtn.disabled = true;
-
-                // If we already detected a newer build id (polling) but the SW isn't
-                // in a waiting state yet, treat an explicit user reload as accepting
-                // that update to prevent the toast from reappearing indefinitely.
-                try {
-                    const pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
-                    if (pending) {
-                        localStorage.setItem(STORAGE_SEEN_BUILD_ID, pending);
-                        localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
-                    }
-                } catch {}
-                try {
-                    if (waitingWorker) {
-                        // User accepted update: mark pending build id as applied (best-effort).
-                        try {
-                            const pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
-                            if (pending) {
-                                localStorage.setItem(STORAGE_SEEN_BUILD_ID, pending);
-                                localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
-                            }
-                        } catch {}
-
-                        waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-                        // If controllerchange doesn't arrive (rare), fall back.
-                        fallbackReloadTimer = setTimeout(() => window.location.reload(), 4000);
-                        return;
-                    }
-
-                    const registration = swRegistration || (await navigator.serviceWorker.getRegistration());
-                    if (!registration) {
-                        window.location.reload();
-                        return;
-                    }
-
-                    // If we detected a newer build id but SW isn't waiting yet, try to pull it.
-                    // (On some browsers, update checks can be delayed/throttled.)
-                    const hasPendingBuild = (() => {
-                        try {
-                            return !!localStorage.getItem(STORAGE_PENDING_BUILD_ID);
-                        } catch {
-                            return false;
-                        }
-                    })();
-
-                    await registration.update().catch(() => {});
-                    if (registration.waiting) {
-                        try {
-                            const pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
-                            if (pending) {
-                                localStorage.setItem(STORAGE_SEEN_BUILD_ID, pending);
-                                localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
-                            }
-                        } catch {}
-
-                        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                        fallbackReloadTimer = setTimeout(() => window.location.reload(), 4000);
-                        return;
-                    }
-
-                    if (hasPendingBuild) {
-                        // Give the SW a brief chance to reach waiting state.
-                        const deadline = Date.now() + 4000;
-                        while (Date.now() < deadline) {
-                            await new Promise((r) => setTimeout(r, 250));
-                            await registration.update().catch(() => {});
-                            if (registration.waiting) {
-                                try {
-                                    const pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
-                                    if (pending) {
-                                        localStorage.setItem(STORAGE_SEEN_BUILD_ID, pending);
-                                        localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
-                                    }
-                                } catch {}
-
-                                registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                                fallbackReloadTimer = setTimeout(() => window.location.reload(), 4000);
-                                return;
-                            }
-                        }
-                    }
-
-                    // No waiting worker: fall back to a normal reload.
-                    window.location.reload();
-                } catch {
-                    window.location.reload();
-                } finally {
-                    // If controllerchange triggers, we'll reload anyway.
-                    // Re-enable button to keep UI responsive if no SW.
-                    refreshBtn.disabled = false;
-                }
-            });
-        }
-
-        const registerServiceWorker = async () => {
-            let buildId = null;
+        async function fetchRemoteBuildId() {
             try {
                 const url = new URL('./build-id.txt', window.location.href);
                 const res = await fetch(url.toString(), {
                     cache: 'no-store',
                     credentials: 'same-origin'
                 });
-                if (res.ok) {
-                    const text = (await res.text()).trim();
-                    if (text) buildId = text;
-                }
-            } catch {}
+                if (!res.ok) return null;
+                const text = (await res.text()).trim();
+                return text || null;
+            } catch {
+                return null;
+            }
+        }
 
+        async function waitForWaitingWorker(registration, timeoutMs) {
+            const deadline = Date.now() + timeoutMs;
+            while (Date.now() < deadline) {
+                if (registration.waiting) {
+                    return registration.waiting;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 250));
+                await registration.update().catch(() => {});
+            }
+            return registration.waiting || null;
+        }
+
+        async function applyUpdate() {
+            if (applyingUpdate) return;
+            applyingUpdate = true;
+            applyRequested = true;
+            reloadRecommended = false;
+            hiddenToastBuildId = null;
+            setRefreshState({ hasPending: true, applying: true });
+            setToast({
+                visible: true,
+                title: 'Applying update...',
+                details: 'The app will reload once the new version is active.',
+                actionLabel: 'Reload',
+                actionDisabled: true
+            });
+            updateHelpVersionInfo();
+
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+            }
+
+            try {
+                const registration = swRegistration || await navigator.serviceWorker.getRegistration();
+                if (!registration) {
+                    window.location.reload();
+                    return;
+                }
+                swRegistration = registration;
+
+                waitingWorker = registration.waiting || waitingWorker;
+                if (!waitingWorker) {
+                    await registration.update().catch(() => {});
+                    waitingWorker = await waitForWaitingWorker(registration, 6000);
+                }
+
+                if (!waitingWorker) {
+                    applyingUpdate = false;
+                    applyRequested = false;
+                    pendingBuildId = latestRemoteBuildId;
+                    updateHelpVersionInfo();
+                    setRefreshState({ hasPending: true, applying: false });
+                    setToast({
+                        visible: true,
+                        title: 'Update still downloading',
+                        details: 'The new version is not ready yet. Please retry in a few seconds.',
+                        actionLabel: 'Retry',
+                        actionDisabled: false
+                    });
+                    return;
+                }
+
+                const waitingBuild = extractBuildIdFromWorker(waitingWorker);
+                if (waitingBuild) {
+                    pendingBuildId = waitingBuild;
+                }
+                updateHelpVersionInfo();
+
+                waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+                fallbackReloadTimer = window.setTimeout(() => {
+                    window.location.reload();
+                }, APPLY_TIMEOUT_MS);
+            } catch (error) {
+                console.warn('Failed to apply service worker update.', error);
+                applyingUpdate = false;
+                applyRequested = false;
+                setRefreshState({ hasPending: true, applying: false });
+                setToast({
+                    visible: true,
+                    title: 'Update failed',
+                    details: 'Could not apply the update. Check your connection and retry.',
+                    actionLabel: 'Retry',
+                    actionDisabled: false
+                });
+            }
+        }
+
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            activeControllerBuildId = getActiveControllerBuildId() || activeControllerBuildId;
+            waitingWorker = null;
+            pendingBuildId = null;
+            if (fallbackReloadTimer) {
+                clearTimeout(fallbackReloadTimer);
+                fallbackReloadTimer = null;
+            }
+            updateHelpVersionInfo();
+
+            if (applyRequested) {
+                window.location.reload();
+                return;
+            }
+
+            applyingUpdate = false;
+            reloadRecommended = true;
+            setRefreshState({ hasPending: true, applying: false });
+            if (shouldShowToastForCurrentState()) {
+                setToast({
+                    visible: true,
+                    title: 'Update installed',
+                    details: 'Another tab activated an update. Reload when you are ready.',
+                    actionLabel: 'Reload',
+                    actionDisabled: false
+                });
+            }
+        });
+
+        if (updateToastReload) {
+            updateToastReload.addEventListener('click', async () => {
+                if (reloadRecommended) {
+                    window.location.reload();
+                    return;
+                }
+                if (waitingWorker || pendingBuildId || isKnownRemoteUpdate()) {
+                    await applyUpdate();
+                    return;
+                }
+                window.location.reload();
+            });
+        }
+
+        if (updateToastClose) {
+            updateToastClose.addEventListener('click', () => {
+                rememberHiddenToast();
+                setToast({
+                    visible: false,
+                    title: '',
+                    details: '',
+                    actionLabel: 'Reload',
+                    actionDisabled: false
+                });
+            });
+        }
+
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', async () => {
+                if (applyingUpdate) {
+                    return;
+                }
+
+                if (reloadRecommended) {
+                    window.location.reload();
+                    return;
+                }
+
+                if (waitingWorker || pendingBuildId || isKnownRemoteUpdate()) {
+                    await applyUpdate();
+                    return;
+                }
+
+                try {
+                    const registration = swRegistration || await navigator.serviceWorker.getRegistration();
+                    if (!registration) {
+                        window.location.reload();
+                        return;
+                    }
+                    swRegistration = registration;
+                    await registration.update().catch(() => {});
+                    if (registration.waiting) {
+                        showUpdateAvailable(registration.waiting, 'available');
+                        await applyUpdate();
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Manual update check failed.', error);
+                }
+
+                window.location.reload();
+            });
+        }
+
+        async function checkForUpdates({ notifyWhenDetected = false } = {}) {
+            const remoteBuild = await fetchRemoteBuildId();
+            if (remoteBuild) {
+                latestRemoteBuildId = remoteBuild;
+            }
+            updateHelpVersionInfo();
+
+            const registration = swRegistration || await navigator.serviceWorker.getRegistration().catch(() => null);
+            if (!registration) {
+                return;
+            }
+            swRegistration = registration;
+            await registration.update().catch(() => {});
+
+            if (registration.waiting) {
+                showUpdateAvailable(registration.waiting, 'available');
+                return;
+            }
+
+            if (!remoteBuild) {
+                return;
+            }
+
+            if (!isKnownRemoteUpdate()) {
+                if (!reloadRecommended && !waitingWorker && !applyingUpdate) {
+                    clearPendingState();
+                }
+                return;
+            }
+
+            pendingBuildId = remoteBuild;
+            setRefreshState({ hasPending: true, applying: applyingUpdate });
+            updateHelpVersionInfo();
+
+            if (notifyWhenDetected && shouldShowToastForCurrentState() && !applyingUpdate) {
+                showUpdateAvailable(null, 'downloading');
+            }
+        }
+
+        async function registerServiceWorker() {
+            const buildId = await fetchRemoteBuildId();
+            if (buildId) {
+                latestRemoteBuildId = buildId;
+            }
             const swUrl = buildId ? `./sw.js?build=${encodeURIComponent(buildId)}` : './sw.js';
             return navigator.serviceWorker.register(swUrl, { updateViaCache: 'none' });
-        };
+        }
+
+        updateHelpVersionInfo();
+        setRefreshState({ hasPending: false, applying: false });
+        window.addEventListener('topobus:restore-status', handleRestoreStatusEvent);
+        if (isProjectFilePersistenceSupported()) {
+            const meta = getStoredProjectMeta();
+            if (meta && meta.name) {
+                const size = formatBytes(Number(meta.size));
+                console.info('[TopoBus] OPFS restore enabled for last project:', meta.name, size || '');
+            } else {
+                console.info('[TopoBus] OPFS restore enabled (no saved project yet).');
+            }
+        } else {
+            console.info('[TopoBus] OPFS restore not supported by this browser.');
+        }
 
         registerServiceWorker()
-            .then((registration) => {
+            .then(async (registration) => {
                 swRegistration = registration;
-                // Proactively check for updates on load.
-                registration.update().catch(() => {});
+                await registration.update().catch(() => {});
 
                 const trackInstallingWorker = (worker) => {
                     if (!worker) return;
                     worker.addEventListener('statechange', () => {
-                        // When a new version is installed, show the refresh button.
-                    if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-                        if (isSafeToReload()) {
-                            waitingWorker = registration.waiting || worker;
-                            forceApplyUpdate();
-                        } else {
-                            showUpdateAvailable(registration.waiting || worker);
+                        if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+                            showUpdateAvailable(registration.waiting || worker, 'available');
                         }
-                    }
-
-                        // If the update becomes redundant or activated without reload intent, hide.
                         if (worker.state === 'redundant') {
-                            hideUpdateAvailable();
+                            if (waitingWorker === worker) {
+                                waitingWorker = null;
+                            }
+                            if (applyingUpdate) {
+                                applyingUpdate = false;
+                                applyRequested = false;
+                                setRefreshState({ hasPending: true, applying: false });
+                                setToast({
+                                    visible: true,
+                                    title: 'Update failed',
+                                    details: 'The update was discarded by the browser. Please retry.',
+                                    actionLabel: 'Retry',
+                                    actionDisabled: false
+                                });
+                            }
+                            updateHelpVersionInfo();
                         }
                     });
                 };
 
-                // If an update is already waiting (e.g. opened app after deploy)
                 if (registration.waiting && navigator.serviceWorker.controller) {
-                    showUpdateAvailable(registration.waiting);
+                    showUpdateAvailable(registration.waiting, 'available');
                 }
 
                 registration.addEventListener('updatefound', () => {
                     trackInstallingWorker(registration.installing);
                 });
-
                 trackInstallingWorker(registration.installing);
 
-                // Extra reliability for GitHub Pages/static hosting:
-                // check the generated build id and prompt even if the SW doesn't end up "waiting"
-                // (e.g. because the SW calls skipWaiting() during install).
-                const checkBuildId = async () => {
-                    try {
-                        const url = new URL('./build-id.txt', window.location.href);
-                        const res = await fetch(url.toString(), {
-                            cache: 'no-store',
-                            credentials: 'same-origin'
-                        });
-                        if (!res.ok) return;
-                        const remote = (await res.text()).trim();
-                        if (!remote) return;
-
-                        let seen = null;
-                        let pending = null;
-                        try {
-                            seen = localStorage.getItem(STORAGE_SEEN_BUILD_ID);
-                            pending = localStorage.getItem(STORAGE_PENDING_BUILD_ID);
-                        } catch {
-                            // If storage is unavailable, we can still prompt when SW is waiting.
-                        }
-
-                        // If storage contains a stale pending marker, clear it.
-                        if (pending && (pending === seen || remote === seen)) {
-                            try {
-                                localStorage.removeItem(STORAGE_PENDING_BUILD_ID);
-                            } catch {}
-                            pending = null;
-                        }
-
-                        if (!seen) {
-                            try {
-                                localStorage.setItem(STORAGE_SEEN_BUILD_ID, remote);
-                            } catch {}
-                            return;
-                        }
-
-                        // If we've already detected the pending build, keep prompting.
-                        if (pending && pending !== seen) {
-                            showUpdateAvailable(registration.waiting || null);
-                            return;
-                        }
-
-                        if (remote !== seen) {
-                            try {
-                                localStorage.setItem(STORAGE_PENDING_BUILD_ID, remote);
-                            } catch {}
-                            // Trigger an update check; the SW should update because sw.generated.js changed.
-                            registration.update().catch(() => {});
-                            if (isSafeToReload()) {
-                                forceApplyUpdate();
-                            } else {
-                                showUpdateAvailable(registration.waiting || null);
-                            }
-                        }
-                    } catch {
-                        // Offline or blocked; ignore.
+                await checkForUpdates({ notifyWhenDetected: false });
+                window.setTimeout(() => {
+                    checkForUpdates({ notifyWhenDetected: true });
+                }, 1500);
+                updateCheckTimer = window.setInterval(() => {
+                    checkForUpdates({ notifyWhenDetected: true });
+                }, UPDATE_CHECK_INTERVAL_MS);
+                window.addEventListener('online', () => {
+                    checkForUpdates({ notifyWhenDetected: true });
+                });
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden) {
+                        checkForUpdates({ notifyWhenDetected: false });
                     }
-                };
-
-                // Run once shortly after load, then periodically.
-                setTimeout(() => checkBuildId(), 1500);
-                setInterval(() => checkBuildId(), 30 * 60 * 1000);
+                });
             })
             .catch((error) => {
                 console.warn('Service worker registration failed:', error);
+                if (updateCheckTimer) {
+                    clearInterval(updateCheckTimer);
+                    updateCheckTimer = null;
+                }
             });
     });
 }

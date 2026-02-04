@@ -1,6 +1,6 @@
 import { initDom } from './dom.js';
 import { initShapes } from './graph/shapes.js';
-import { setupUploadHandlers, setupPasswordControls } from './upload.js';
+import { setupUploadHandlers, setupPasswordControls, restoreLastProjectFromStorage } from './upload.js';
 import { setupFilterControls } from './filters.js';
 import { setupMinimap } from './minimap.js';
 import { loadDptCatalog } from './dpt.js';
@@ -25,4 +25,8 @@ export function initApp() {
     setupFilterControls();
     setupMinimap();
     setupPasswordControls();
+
+    restoreLastProjectFromStorage().catch((error) => {
+        console.warn('Project restore failed.', error);
+    });
 }

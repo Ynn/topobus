@@ -161,15 +161,20 @@ async function handleBuildId(request) {
 
 async function handleNavigation(request) {
   const cache = await caches.open(CACHE_NAME);
+  const cachedAppShell = await cache.match('./index.html');
+  if (cachedAppShell) {
+    // Keep app shell version consistent with the active SW.
+    return cachedAppShell;
+  }
+
   try {
     const response = await fetch(request);
     if (response && response.ok) {
-      cache.put(request, response.clone());
+      cache.put('./index.html', response.clone());
     }
     return response;
   } catch (error) {
-    const cached = await cache.match(request);
-    return cached || cache.match('./index.html');
+    return cachedAppShell || new Response('Offline', { status: 504, statusText: 'Offline' });
   }
 }
 

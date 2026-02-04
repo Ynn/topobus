@@ -1614,6 +1614,11 @@ tr.table-spacer td {
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
+.update-btn.update-applying {
+    cursor: progress;
+    opacity: 0.85;
+}
+
 .update-btn.update-available::after {
     content: '';
     position: absolute;
@@ -1684,7 +1689,17 @@ tr.table-spacer td {
 }
 
 .update-toast__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 220px;
     font-weight: 600;
+}
+
+.update-toast__details {
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--text-secondary);
 }
 
 .update-toast__actions {
@@ -1876,6 +1891,13 @@ tr.table-spacer td {
     line-height: 1.5;
 }
 
+#about-version-running,
+#about-version-latest,
+#about-version-pending,
+#about-restore-status {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 
 .settings-label {
     display: block;
@@ -1959,7 +1981,8 @@ tr.table-spacer td {
 
 .settings-reset-btn,
 .settings-save-btn,
-.settings-cancel-btn {
+.settings-cancel-btn,
+.settings-reset-offline-btn {
     padding: 8px 14px;
     border-radius: 8px;
     border: 1px solid var(--border-color);
@@ -1989,6 +2012,17 @@ tr.table-spacer td {
     border-color: var(--primary-blue);
     color: var(--primary-blue);
     background: var(--bg-white);
+}
+
+.settings-reset-offline-btn {
+    background: #fff1f2;
+    border-color: #fda4af;
+    color: #be123c;
+}
+
+.settings-reset-offline-btn:hover {
+    background: #ffe4e6;
+    border-color: #fb7185;
 }
 
 .search-clear:hover {

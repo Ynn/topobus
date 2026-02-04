@@ -5,6 +5,7 @@ import { applyFiltersAndRender } from './filters.js';
 import { resetLayoutCaches } from './graph/layout.js';
 import { updateLinkStyles, applyElementStyle, applySelectionStyles } from './graph/styles.js';
 import { readTheme } from './theme.js';
+import { clearLastProjectFile } from './project_file_store.js';
 
 const STORAGE_KEY = 'topobus.settings';
 let draftSettings = null;
@@ -197,6 +198,11 @@ function bindSettingsControls(dom) {
     if (dom.settingsCancel) {
         dom.settingsCancel.addEventListener('click', () => {
             cancelSettings();
+        });
+    }
+    if (dom.settingsResetOffline) {
+        dom.settingsResetOffline.addEventListener('click', async () => {
+            await resetOfflineData();
         });
     }
 
@@ -505,5 +511,61 @@ function setActiveSettingsTab(key, root) {
     panels.forEach((panel) => {
         const panelKey = panel.getAttribute('data-settings-panel');
         panel.classList.toggle('active', panelKey === key);
+    });
+}
+
+async function resetOfflineData() {
+    const confirmed = window.confirm(
+        'Reset all offline data (service worker, caches, local databases, saved project file) and reload now?'
+    );
+    if (!confirmed) return;
+
+    try {
+        await Promise.all([
+            unregisterServiceWorkers(),
+            clearCacheStorage(),
+            clearIndexedDbDatabases(),
+            clearLastProjectFile()
+        ]);
+    } catch (error) {
+        console.warn('Offline reset encountered errors.', error);
+    }
+
+    try {
+        sessionStorage.removeItem('topobus_layout_cache_init');
+        sessionStorage.removeItem('topobus_project_cache_init');
+    } catch {}
+
+    window.location.reload();
+}
+
+async function unregisterServiceWorkers() {
+    if (!('serviceWorker' in navigator)) return;
+    const registrations = await navigator.serviceWorker.getRegistrations().catch(() => []);
+    await Promise.all(registrations.map((registration) => registration.unregister().catch(() => false)));
+}
+
+async function clearCacheStorage() {
+    if (typeof caches === 'undefined') return;
+    const keys = await caches.keys().catch(() => []);
+    await Promise.all(keys.map((key) => caches.delete(key).catch(() => false)));
+}
+
+async function clearIndexedDbDatabases() {
+    const dbNames = ['topobus-project-cache', 'topobus-layout-cache'];
+    if (typeof indexedDB === 'undefined') return;
+    await Promise.all(dbNames.map((name) => deleteIndexedDb(name)));
+}
+
+function deleteIndexedDb(name) {
+    return new Promise((resolve) => {
+        try {
+            const request = indexedDB.deleteDatabase(name);
+            request.onsuccess = () => resolve();
+            request.onerror = () => resolve();
+            request.onblocked = () => resolve();
+        } catch {
+            resolve();
+        }
     });
 }

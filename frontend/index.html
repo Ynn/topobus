@@ -83,7 +83,8 @@
         <!-- Update toast (shown when a new SW version is available) -->
         <div id="update-toast" class="update-toast hidden" role="status" aria-live="polite">
             <div class="update-toast__text">
-                New version available
+                <div id="update-toast-title">New version available</div>
+                <div id="update-toast-details" class="update-toast__details">Tap Reload to apply the update.</div>
             </div>
             <div class="update-toast__actions">
                 <button type="button" class="update-toast__btn" id="update-toast-reload">Reload</button>
@@ -384,6 +385,7 @@
                     <button class="settings-cancel-btn" id="settings-cancel">Cancel</button>
                     <button class="settings-save-btn" id="settings-save">Save</button>
                     <button class="settings-reset-btn" id="settings-reset">Reset to defaults</button>
+                    <button class="settings-reset-offline-btn" id="settings-reset-offline">Reset offline cache</button>
                 </div>
             </div>
         </div>
@@ -451,6 +453,12 @@
                         </div>
                         <div class="help-paragraph">
                             The Mocha and Latte themes are derived from <a href="https://catppuccin.com/" target="_blank" rel="noreferrer">Catppuccin</a>.
+                        </div>
+                        <div class="help-paragraph">
+                            Running build: <strong id="about-version-running">unknown</strong><br>
+                            Latest deployed build: <strong id="about-version-latest">unknown</strong><br>
+                            Pending update build: <strong id="about-version-pending">none</strong><br>
+                            Auto-restore status: <strong id="about-restore-status">not attempted</strong>
                         </div>
                     </div>
                 </div>

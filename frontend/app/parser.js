@@ -2,15 +2,21 @@ import { state } from './state.js';
 import { ApiClient } from './utils/api_client.js';
 import { parseKnxprojBytesWithWorker } from './wasm_worker_client.js';
 
-export async function parseKnxprojFile(file, password) {
-    const wasmData = await tryParseWithWasm(file, password);
+export async function parseKnxprojFile(file, password, options = {}) {
+    const allowServerFallback = options && options.allowServerFallback !== false;
+    const wasmData = await tryParseWithWasm(file, password, {
+        strict: !allowServerFallback
+    });
     if (wasmData) {
         return wasmData;
+    }
+    if (!allowServerFallback) {
+        throw new Error('Local parsing failed and server fallback is disabled.');
     }
     return parseWithServer(file, password);
 }
 
-async function tryParseWithWasm(file, password) {
+async function tryParseWithWasm(file, password, options = {}) {
     const buffer = await file.arrayBuffer();
     try {
         const preferredLanguage = state.uiSettings && state.uiSettings.productLanguage
@@ -19,6 +25,9 @@ async function tryParseWithWasm(file, password) {
         return await parseKnxprojBytesWithWorker(buffer, password, preferredLanguage);
     } catch (error) {
         if (isPasswordError(error)) {
+            throw error;
+        }
+        if (options && options.strict) {
             throw error;
         }
         console.warn('WASM parse failed, falling back to server.', error);
